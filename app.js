@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.3.3";
+const VERSION = "1.3.4";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -148,7 +148,10 @@ function openSheet(build) {
     },
   };
   sheets.push(s);
-  back.addEventListener("pointerdown", (e) => { if (e.target === back) s.close(); });
+  // 點選單外面＝關掉：等「點完」(click) 才關，這一下就被背景吃掉，不會又點到後面的按鈕
+  let downOnBack = false;
+  back.addEventListener("pointerdown", (e) => { downOnBack = e.target === back; });
+  back.addEventListener("click", (e) => { if (e.target === back && downOnBack) { e.preventDefault(); e.stopPropagation(); s.close(); } downOnBack = false; });
   build(el, s);
   return s;
 }
@@ -736,6 +739,22 @@ function describeF(e) {
   return `${fname(e.payer, e.g)} 付，${e.to.length} 人平分`;
 }
 const mmdd = (t) => C.ymd(new Date(t)).slice(5).replace("-", "/");
+// 明細：每次大家都兩清的地方畫一條分隔線；最近一次兩清以前的，收進「已結清的紀錄」（紀錄不會刪）
+function entryList(list) {
+  const settled = new Set(), net = {}, asc = [...list].sort((a, b) => a.t - b.t);
+  for (const e of asc) {
+    for (const x of C.friendBalances([e])) { const k = [x.from, x.to].sort().join("|"), sgn = x.from < x.to ? 1 : -1; net[k] = (net[k] || 0) + sgn * x.amt; }
+    if (Object.values(net).every((v) => v === 0)) settled.add(e.id);
+  }
+  const row = (e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
+    <span class="num${e.kind === "pay" ? " muted" : ""}">${C.money(e.amt)}</span></button>`;
+  const line = (e) => `<div class="settle"><span>${mmdd(e.t)} 兩清</span></div>`;
+  const render = (arr) => arr.map((e) => (settled.has(e.id) ? line(e) : "") + row(e)).join("");
+  const lastI = list.findIndex((e) => settled.has(e.id));       // list 是新到舊：第一個找到的就是最近一次兩清
+  if (lastI < 0) return render(list);
+  const recent = list.slice(0, lastI), old = list.slice(lastI);
+  return render(recent) + line(old[0]) + `<details class="old"><summary class="small muted">已結清的紀錄（${old.length} 筆）</summary>${old.map((e, i) => (i && settled.has(e.id) ? line(e) : "") + row(e)).join("")}</details>`;
+}
 function pgFriends() {
   const f = data.prefs.friend;
   if (!f) return `${subHead("朋友分帳")}
@@ -753,8 +772,7 @@ function pgFriends() {
       <div class="fbal">${pairBlocks(g.id)}</div>
       <div class="row-btns"><button class="btn primary grow" data-fadd>${ico("plus")}記一筆</button><button class="btn grow" data-frepay>記還款</button></div>
       <div class="sec-h"><span>明細（${list.length} 筆）</span><span>${esc(F.members.filter((m) => m.g === g.id).map((m) => fname(m.uid, g.id)).join("、"))}</span></div>
-      ${list.map((e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
-        <span class="num${e.kind === "pay" ? " muted" : ""}">${C.money(e.amt)}</span></button>`).join("") || `<div class="empty">這個群組還沒有帳。</div>`}`;
+      ${entryList(list) || `<div class="empty">這個群組還沒有帳。</div>`}`;
   }
   return `${subHead("朋友分帳", syncBtn)}${status}
     <div class="row-btns"><button class="btn grow" data-fnew>${ico("plus")}新增一群朋友</button></div>
@@ -779,6 +797,15 @@ function friendForm(kind, gid0 = ui.fg) {
     st.payer = me; st.to = mem.map((m) => m.uid);
   };
   setGroup(gid);
+  // 我和某人相抵後：正＝他欠我，負＝我欠他
+  const netWith = (g, uid) => C.friendBalances(F.entries.filter((e) => e.g === g)).reduce((a, x) => a + (x.from === uid && x.to === me ? x.amt : x.to === uid && x.from === me ? -x.amt : 0), 0);
+  const suggest = () => { const n = netWith(st.g, st.who); return st.mode === "iPay" && n < 0 ? String(-n) : st.mode === "theyPay" && n > 0 ? String(n) : ""; };
+  if (kind === "pay") {          // 記還款：先選「欠最多的那個人」和對的方向，金額帶入欠的錢
+    const others = F.members.filter((m) => m.g === st.g && m.uid !== me).map((m) => ({ uid: m.uid, n: netWith(st.g, m.uid) })).sort((a, b) => Math.abs(b.n) - Math.abs(a.n));
+    if (others[0]?.n) { st.who = others[0].uid; st.mode = others[0].n < 0 ? "iPay" : "theyPay"; }
+    st.expr = st.autoExpr = suggest();
+  }
+  const reSuggest = () => { if (kind === "pay" && st.expr === st.autoExpr) st.expr = st.autoExpr = suggest(); };
   // 常用項目：餐飲的細項＋我最近記過的朋友帳項目
   const quick = () => {
     const food = (data.cats.out.find((c) => c.name === "餐飲")?.subs || []).slice(0, 4);
@@ -798,9 +825,18 @@ function friendForm(kind, gid0 = ui.fg) {
           : `<div class="field"><span class="lab">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</span>${chips(others, "fwho", (u) => u === st.who)}</div>`}
         ${kind === "pay" ? "" : `<div class="pick-row" style="padding:0 0 4px">${quick().map((x) => `<button class="chip${x === st.item ? " on" : ""}" data-fq="${esc(x)}">${esc(x)}</button>`).join("")}</div>
           <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>`}
+        ${kind === "pay" ? `<p class="small muted" style="margin:0 0 4px">${(() => { const n = netWith(st.g, st.who), nm = esc(fname(st.who, st.g)); return n < 0 ? `目前你欠 ${nm} ${N(-n)}` : n > 0 ? `目前 ${nm} 欠你 ${N(n)}` : `你和 ${nm} 目前兩清`; })()}</p>` : ""}
         <div class="amt-disp"></div>
         ${keypadHTML()}`;
-      bindKeypad(el, st, (amt) => {
+      bindKeypad(el, st, async (amt) => {
+        if (kind === "pay") {        // 方向選反、或還超過欠的：先確認
+          const n = netWith(st.g, st.who), nm = fname(st.who, st.g);
+          const warn = st.mode === "theyPay" && n <= 0 ? `${nm} 沒有欠你錢，記「別人還我」會變成你欠 ${nm} 更多。要記的是「我還別人」嗎？`
+            : st.mode === "iPay" && n >= 0 ? `你沒有欠 ${nm} 錢，記「我還別人」會變成 ${nm} 欠你。確定嗎？`
+            : st.mode === "iPay" && amt > -n ? `你只欠 ${nm} ${C.money(-n)}，還 ${C.money(amt)} 會變成 ${nm} 欠你 ${C.money(amt + n)}。確定嗎？`
+            : st.mode === "theyPay" && amt > n ? `${nm} 只欠你 ${C.money(n)}，還 ${C.money(amt)} 會變成你欠 ${nm} ${C.money(amt - n)}。確定嗎？` : "";
+          if (warn && !(await sure("確定這樣記？", warn, "照樣記"))) return;
+        }
         const item = kind === "pay" ? "還款" : st.item.trim();
         if (!item) { toast("點一個項目或自己打，例如：午餐"); return; }
         const m = st.mode, payer = m === "iOwe" || m === "theyPay" ? st.who : m === "split" ? st.payer : me;
@@ -820,9 +856,9 @@ function friendForm(kind, gid0 = ui.fg) {
       if (!t) return;
       const d = t.dataset;
       if (d.close !== undefined) return s.close();
-      if (d.fgp) { setGroup(d.fgp); draw(); }
-      if (d.fm) { st.mode = d.fm; draw(); }
-      if (d.fwho) { st.who = d.fwho; draw(); }
+      if (d.fgp) { setGroup(d.fgp); reSuggest(); draw(); }
+      if (d.fm) { st.mode = d.fm; reSuggest(); draw(); }
+      if (d.fwho) { st.who = d.fwho; reSuggest(); draw(); }
       if (d.fpay) { st.payer = d.fpay; draw(); }
       if (d.fto) { const u = d.fto, mem = F.members.filter((m) => m.g === st.g); st.to = mem.map((x) => x.uid).filter((x) => (x === u ? !st.to.includes(u) : st.to.includes(x))); draw(); }
       if (d.fq !== undefined) {   // 點常用項目：餐飲細項就直接用餐飲＋細項當分類

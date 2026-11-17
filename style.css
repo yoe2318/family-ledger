@@ -315,3 +315,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .cal.in-l { animation: cal-in-l .22s ease-out; }
 @keyframes cal-in-r { from { transform: translateX(24px); opacity: .3; } }
 @keyframes cal-in-l { from { transform: translateX(-24px); opacity: .3; } }
+/* 朋友帳明細的兩清分隔線 */
+.settle { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--ok); font-size: var(--fs-small); }
+.settle::before, .settle::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
+details.old { margin-top: 4px; }
+details.old summary { padding: 8px 0; cursor: pointer; }
