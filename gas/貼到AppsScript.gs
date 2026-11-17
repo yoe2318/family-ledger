@@ -357,14 +357,35 @@ function balanceText_(db, gid) {
   if (!b.length) return "目前沒有人欠錢";
   return b.map(function (x) { return nameOf_(db, x.from) + " 欠 " + nameOf_(db, x.to) + " " + x.amt + " 元"; }).join("\n");
 }
+// 連動碼：8 個字（沒有 0/O、1/I/L 這些容易看錯的），顯示成 XXXX-XXXX。比對時不分大小寫、忽略「-」。
+// 一個人可以有好幾組（舊的 20 碼長連結照樣能用）；「換連動碼」會把這個人的全部作廢、換一組新的。
+var CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+function normKey_(k) { return String(k || "").toUpperCase().replace(/[^0-9A-Z]/g, ""); }
+function newCode_(db) {
+  for (;;) {
+    var c = "";
+    for (var i = 0; i < 8; i++) c += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+    if (!db.keys.some(function (x) { return normKey_(x.key) === c; })) return c;
+  }
+}
 function linkFor_(db, uid, renew) {
-  var k = db.keys.filter(function (x) { return x.uid === uid; })[0];
-  var key = Utilities.getUuid().replace(/-/g, "").slice(0, 20);
-  if (k && !renew) key = k.key;
-  else if (k) { db.sh.k.getRange(k.row, 2).setValue(key); k.key = key; }
-  else { db.sh.k.appendRow([uid, key, new Date()]); db.keys.push({ row: db.sh.k.getLastRow(), uid: uid, key: key }); }
+  var mine = db.keys.filter(function (x) { return x.uid === uid; });
+  if (renew) mine.forEach(function (x) { db.sh.k.getRange(x.row, 1, 1, 2).setValues([["", ""]]); x.key = ""; });
+  var short = renew ? null : mine.filter(function (x) { return /^[0-9A-Z]{8}$/.test(normKey_(x.key)); })[0];
+  var key = short ? normKey_(short.key) : newCode_(db);
+  if (!short) { db.sh.k.appendRow([uid, key, new Date()]); db.keys.push({ row: db.sh.k.getLastRow(), uid: uid, key: key }); }
   var url = TEST ? "TEST_URL" : ScriptApp.getService().getUrl();
-  return APP_URL + "#link=" + encodeURIComponent(url) + "~" + key;
+  return { key: key, show: key.slice(0, 4) + "-" + key.slice(4), url: APP_URL + "?openExternalBrowser=1#link=" + encodeURIComponent(url) + "~" + key };
+}
+// 機器人的 LINE ID（例如 @123abcd），給 App 做「加機器人好友」的按鈕；查一次存在指令碼屬性
+function botId_() {
+  if (TEST) return "@testbot";
+  var pr = PropertiesService.getScriptProperties(), v = pr.getProperty("BOT_ID");
+  if (v) return v;
+  var info = lineApi_("info");
+  v = (info && info.basicId) || "";
+  if (v) pr.setProperty("BOT_ID", v);
+  return v;
 }
 
 // 「查詢」用：每兩個人從以前到現在各欠多少、還了多少、相抵後誰欠誰
@@ -402,8 +423,9 @@ function handleEvent_(ev) {
 
   if (!gid) {                                   // 私訊機器人
     if (p && (p.cmd === "link" || p.cmd === "relink")) {
-      return reply_(tk, (p.cmd === "relink" ? "已換新的連動碼，舊的不能用了。\n\n" : "") +
-        "用手機點下面的連結，就會打開記帳 App 並連上你的朋友帳（只看得到你有參加的群組）。\n連結等於鑰匙，不要傳給別人；外流了就私訊我「換連動碼」。\n\n" + linkFor_(db, uid, p.cmd === "relink"));
+      var L = linkFor_(db, uid, p.cmd === "relink");
+      return reply_(tk, (p.cmd === "relink" ? "已換新的連動碼，舊的都不能用了。\n\n" : "") +
+        "你的連動碼：" + L.show + "\n\n打開記帳 App →「更多」→ 最下面「輸入連動碼」，打這 8 個字就連上了（只看得到你有參加的群組）。\n連動碼等於鑰匙，不要給別人；外流了就私訊我「換連動碼」。\n\n也可以直接點：\n" + L.url);
     }
     var inLegacy = db.members.some(function (m) { return m.g === LEGACY && m.uid === uid; });
     if (!inLegacy) return reply_(tk, p && p.cmd !== "help" ? "記帳要在群組裡打喔：開一個 LINE 群組、把我邀進去就是一本分帳本。\n私訊我可以打「連動碼」。" : LG.HELP);
@@ -450,7 +472,8 @@ function handleEvent_(ev) {
 // ------------------------------------------------------------------ 記帳 App 的 API（POST，body 是 JSON 文字）
 function api_(q) {
   var db = load_(ss_());
-  var k = db.keys.filter(function (x) { return x.key && x.key === String(q.key || ""); })[0];
+  var qk = normKey_(q.key);
+  var k = qk && db.keys.filter(function (x) { return x.key && normKey_(x.key) === qk; })[0];
   if (!k) return { ok: false, err: "key" };
   var uid = k.uid;
   var myGroups = db.members.filter(function (m) { return m.uid === uid; }).map(function (m) { return m.g; });
@@ -473,7 +496,7 @@ function api_(q) {
     if (x && !x.del) { x.del = true; db.sh.e.getRange(x.row, 11).setValue(1); }
   } else if (q.op !== "sync") return { ok: false, err: "op" };
   return {
-    ok: true, me: uid, at: Date.now(),
+    ok: true, me: uid, at: Date.now(), bot: botId_(),
     groups: db.groups.filter(function (g) { return myGroups.indexOf(g.id) >= 0; }).map(function (g) { return { id: g.id, name: g.name || (g.id === LEGACY ? "舊的 LINE 記帳" : "LINE 群組") }; }),
     members: db.members.filter(function (m) { return myGroups.indexOf(m.g) >= 0; }).map(function (m) { return { uid: m.uid, g: m.g, name: m.name || nameOf_(db, m.uid) }; }),
     entries: db.entries.filter(function (e) { return myGroups.indexOf(e.g) >= 0; }).map(function (e) {

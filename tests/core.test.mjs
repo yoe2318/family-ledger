@@ -175,5 +175,55 @@ const PT = C.pairTotals([FE(1, "b", ["a"], 6458), FE(2, "a", ["b"], 5840), FE(3,
 eq("兩人總帳", PT, [{ a: "a", b: "b", ab: 6458, ba: 5840 + 30, apay: 100, bpay: 0, net: { from: "a", to: "b", amt: 488 } }, { a: "a", b: "c", ab: 0, ba: 30, apay: 0, bpay: 0, net: { from: "c", to: "a", amt: 30 } }]);
 eq("總帳的相抵和淨額一致", PT.map((p) => p.net), C.friendBalances([FE(1, "b", ["a"], 6458), FE(2, "a", ["b"], 5840), FE(3, "a", ["b"], 100, "pay"), FE(4, "a", ["a", "b", "c"], 90)]));
 
+// ---- 帳戶與移動
+{
+  const it = (id, type, amt, pay, date, extra = {}) => ({ id, type, amt, cat: "其他", sub: "", pay, date, note: "", t: 0, ...extra });
+  let d = C.presetAccounts(C.cleanData({ items: [], pays: ["現金", "信用卡", "LINE Pay"] }));
+  eq("快速設定：三個帳戶", d.accounts.map((a) => a.id + ":" + a.name), ["bank:郵局", "cash:錢包", "card:信用卡"]);
+  eq("快速設定：付款方式對應", d.payAcct, { 現金: "cash", 信用卡: "card", "LINE Pay": "bank" });
+  eq("快速設定：收入進郵局", [d.prefs.inAcct, d.prefs.outAcct], ["bank", "cash"]);
+  d = { ...d, accounts: d.accounts.map((a) => (a.id === "bank" ? { ...a, open: 10000 } : a.id === "cash" ? { ...a, open: 500 } : a)) };
+  d = { ...d, items: [it("a", "out", 100, "LINE Pay", "2026-11-02"), it("b", "out", 50, "現金", "2026-11-03"), it("c", "in", 3000, "", "2026-11-04"),
+    it("d", "out", 3200, "信用卡", "2026-11-04"), it("fr-x", "out", 120, "", "2026-11-05"), it("e", "out", 70, "", "2026-11-06")],
+    moves: [{ id: "m1", from: "bank", to: "cash", amt: 1000, date: "2026-11-05", note: "", t: 0 }] };
+  eq("餘額：郵局 10000−100+3000−1000", C.acctBalances(d), { bank: 11900, cash: 500 - 50 + 1000 - 70, card: -3200 });
+  eq("朋友帳那份不動帳戶", C.acctOf(d, d.items[4]), null);
+  eq("沒選付款方式＝從預設帳戶扣", C.acctOf(d, d.items[5]), "cash");
+  const d2 = { ...d, items: [...d.items, it("f", "out", 10, "LINE Pay", "2026-11-07", { acct: "cash" })], payAcct: { ...d.payAcct, "LINE Pay": "cash" } };
+  eq("改設定：沒存 acct 的照新設定、有存的照舊", [C.acctOf(d2, d2.items[0]), C.acctOf(d2, d2.items[6])], ["cash", "cash"]);
+  eq("算到某天為止", C.acctBalances(d, "2026-11-03").bank, 9900);
+  // 卡費：每月 5 號結帳、20 號繳
+  const card = d.accounts.find((a) => a.id === "card");
+  eq("卡費：結帳前還沒有要繳的", C.cardBill(d, card, "2026-11-04").amount, 0);
+  eq("卡費：11/5 結帳後要繳 3200、11/20 繳", C.cardBill(d, card, "2026-11-06"), { amount: 3200, closeDate: "2026-11-05", dueDate: "2026-11-20" });
+  const paid1 = { ...d, moves: [...d.moves, { id: "p1", from: "bank", to: "card", amt: 1200, date: "2026-11-10", note: "", t: 0 }] };
+  eq("卡費：繳一部分還剩 2000", C.cardBill(paid1, card, "2026-11-12").amount, 2000);
+  const paid2 = { ...paid1, moves: [...paid1.moves, { id: "p2", from: "bank", to: "card", amt: 2000, date: "2026-11-15", note: "", t: 0 }] };
+  eq("卡費：繳清就不提醒", C.cardBill(paid2, card, "2026-11-16").amount, 0);
+  eq("卡費：繳費日在下個月", C.cardBill({ ...d, accounts: d.accounts.map((a) => (a.id === "card" ? { ...a, card: { close: 25, due: 10, from: "bank" } } : a)) }, { ...card, card: { close: 25, due: 10, from: "bank" } }, "2026-12-01").dueDate, "2026-12-10");
+  eq("帳戶列：設了起始餘額才顯示", [C.acctShown(C.emptyData()), C.acctShown(d)], [false, true]);
+  // 改名、刪除
+  const r1 = C.renamePay(d, "LINE Pay", "LINEPay");
+  eq("付款方式改名：對應跟著改", r1.payAcct.LINEPay, "bank");
+  eq("刪付款方式：對應拿掉", "LINE Pay" in C.removePay(d, "LINE Pay").payAcct, false);
+  const r2 = C.removeAccount({ ...d, items: [...d.items, it("g", "out", 5, "現金", "2026-11-08", { acct: "bank" })], shortcuts: [{ id: "s", label: "提款", type: "move", from: "bank", to: "cash", amt: 1000, note: "" }] }, "bank");
+  eq("刪帳戶：移動、捷徑、對應、紀錄的 acct 一起處理", [r2.accounts.length, r2.moves.length, r2.shortcuts.length, "LINE Pay" in r2.payAcct, "acct" in r2.items.at(-1), r2.prefs.inAcct], [2, 0, 0, false, false, "cash"]);
+  eq("最後一個帳戶刪不掉", C.removeAccount(C.emptyData(), "cash").accounts.length, 1);
+  // 備份
+  const back = C.cleanData(JSON.parse(JSON.stringify({ ...d, shortcuts: [{ id: "s", label: "提款", type: "move", from: "bank", to: "cash", amt: 1000, note: "" }, { type: "move", from: "x", to: "cash" }] })));
+  eq("備份：帳戶、移動、對應、移動捷徑都留著", [back.accounts.length, back.moves.length, back.payAcct["LINE Pay"], back.shortcuts.length, back.shortcuts[0].type], [3, 1, "bank", 1, "move"]);
+  eq("舊備份沒有帳戶：預設一個錢包", C.cleanData({ items: [] }).accounts, [{ id: "cash", name: "錢包", type: "cash", open: 0 }]);
+  eq("亂的移動丟掉", C.cleanData({ items: [], moves: [{ from: "cash", to: "cash", amt: 5, date: "2026-11-01" }, { from: "cash", to: "zz", amt: 5, date: "2026-11-01" }] }).moves.length, 0);
+  const mg = C.mergeData(C.cleanData({ items: [] }), back);
+  eq("合併：帳戶和移動合在一起", [mg.accounts.map((a) => a.id).sort().join(), mg.moves.length], ["bank,card,cash", 1]);
+  eq("CSV 有移動", C.toCSV([], d.moves, (id) => C.acctName(d, id)).includes("移動,郵局 → 錢包,,,1000"), true);
+}
+
+eq("連動碼：8 碼", C.parseCode(" k7p2-9qxa "), { url: C.FRIEND_API, key: "K7P29QXA" });
+eq("連動碼：舊的 20 碼", C.parseCode("c301300b73164d9497a4"), { url: C.FRIEND_API, key: "c301300b73164d9497a4" });
+eq("連動碼：整條連結", C.parseCode("https://yoe2318.github.io/family-ledger/?openExternalBrowser=1#link=" + encodeURIComponent(C.FRIEND_API) + "~K7P29QXA")?.key, "K7P29QXA");
+eq("連動碼：亂打不收", [C.parseCode("1234"), C.parseCode("K7P2-9QX0"), C.parseCode("")], [null, null, null]);
+eq("朋友快取保留機器人 ID", C.cleanFriends({ me: "a", bot: "@abc123" }).bot, "@abc123");
+
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

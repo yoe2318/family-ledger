@@ -63,7 +63,14 @@ r = say("U3", "飲料 50 阿華", "G2"); ok(r.includes("小明 欠 阿華 50"), 
 r = say("U1", "連動碼");
 const m = /#link=([^~]+)~(\w+)/.exec(r); ok(!!m, "私訊拿到連結", r);
 const key = m && m[2];
+ok(/你的連動碼：[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}/.test(r), "8 碼連動碼", r);
+ok(r.includes("?openExternalBrowser=1#link="), "連結用外部瀏覽器開");
+const show = /連動碼：(\S+)/.exec(r)[1];
+ok(ctx.api({ key: show.toLowerCase(), op: "sync" }).ok, "小寫、有 - 也收");
+ok(ctx.api({ key, op: "sync" }).bot === "@testbot", "回傳機器人 ID");
+ok(/連動碼：(\S+)/.exec(say("U1", "連動碼"))[1] === show, "再要一次是同一組");
 let a = ctx.api({ key: "wrong", op: "sync" }); ok(a.ok === false, "錯的連動碼");
+ok(ctx.api({ key: "", op: "sync" }).ok === false, "空的連動碼");
 a = ctx.api({ key, op: "sync" });
 ok(a.ok && a.me === "U1" && a.groups.length === 2, "U1 看得到兩個群組", JSON.stringify(a.groups));
 r = say("U3", "連動碼"); const key3 = /~(\w+)/.exec(r)[1];

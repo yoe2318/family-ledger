@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -267,6 +267,7 @@ function bindKeypad(el, st, onSave) {
 
 // ================================================================ 記一筆
 function addItem(item, msg) {
+  if (!item.acct && !String(item.id).startsWith("fr-")) item = { ...item, acct: C.acctFor(data, item.type, item.pay) };   // 從哪個帳戶扣：照當下設定，之後改設定不影響這筆
   commit({ ...data, items: [...data.items, item], prefs: { ...data.prefs, lastPay: (item.type === "out" && item.pay) || data.prefs.lastPay } });
   toast(msg || `已記：${item.sub || item.cat} ${C.money(item.amt)}`, { label: "復原", run: () => commit({ ...data, items: data.items.filter((x) => x.id !== item.id) }) });
 }
@@ -275,23 +276,27 @@ function addItem(item, msg) {
 function openForm(item = null, preset = {}) {
   const f = item ? { ...item, expr: String(item.amt) } : { type: "out", cat: "", sub: "", pay: data.prefs.lastPay, date: today(), note: "", expr: "", ...preset };
   if (!f.cat) f.cat = data.cats[f.type][0]?.name || "其他";
+  if (f.type === "in" && !f.acct) f.acct = C.acctFor(data, "in", "");
   let makeShortcut = false;
   openSheet((el, s) => {
     const draw = () => {
       const subs = catOf(f.type, f.cat)?.subs || [];
       el.innerHTML = `
-        <div class="sheet-h"><div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button>${!item && friendOn() ? `<button data-type="friend">朋友帳</button>` : ""}</div>
+        <div class="sheet-h"><div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button>${!item && data.accounts.length > 1 ? `<button data-type="move">移動</button>` : ""}${!item && friendOn() ? `<button data-type="friend">朋友帳</button>` : ""}</div>
           <h3></h3>${item ? `<button class="btn text danger" data-del>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <div class="amt-disp"></div>
         <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}</div>
         ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === f.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        ${f.type === "in" && data.accounts.length > 1 ? `<div class="field"><span class="lab">存入</span><div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.type !== "card").map((a) => `<button class="chip${a.id === f.acct ? " on" : ""}" data-iacct="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div></div>` : ""}
+        ${f.type === "out" && data.accounts.length > 1 ? `<p class="small muted acct-hint">從「${esc(aName(C.acctFor(data, "out", f.pay)))}」扣</p>` : ""}
         ${f.type === "out" ? `<div class="field"><span class="lab">付款方式</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
         <div class="field"><label for="f-date">日期</label><input id="f-date" type="date" value="${esc(f.date)}" max="2100-12-31"></div>
         <div class="field"><label for="f-note">備註</label><input id="f-note" value="${esc(f.note)}" maxlength="200" placeholder="例如：全聯、和朋友聚餐"></div>
         ${item ? "" : `<label class="check"><input type="checkbox" data-sc${makeShortcut ? " checked" : ""}> 存成常用捷徑（首頁一點就能再記一次）</label>`}
         ${keypadHTML()}`;
       bindKeypad(el, f, (amt) => {
-        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}) };
+        const acct = f.type === "in" ? f.acct || C.acctFor(data, "in", "") : item && item.type === "out" && item.pay === f.pay && item.acct ? item.acct : C.acctFor(data, "out", f.pay);
+        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}), ...(String(item?.id).startsWith("fr-") ? {} : { acct }) };
         s.close();
         if (item) { commit({ ...data, items: data.items.map((x) => (x.id === item.id ? rec : x)) }); toast("改好了"); return; }
         if (makeShortcut) data = { ...data, shortcuts: [...data.shortcuts, { id: C.newId(), label: "", type: rec.type, cat: rec.cat, sub: rec.sub, pay: rec.pay, amt, note: rec.note }] };
@@ -303,9 +308,11 @@ function openForm(item = null, preset = {}) {
       const t = e.target.closest("button, input[type=checkbox]");
       if (!t) return;
       if (t.dataset.close !== undefined) return s.close();
-      if (t.dataset.type === "friend") { s.close(); setTimeout(() => friendForm("exp", null), 80); return; }   // 等上一頁的返回處理完再開
+      if (t.dataset.type === "friend") { s.close(); setTimeout(() => friendForm("exp", null), 80); return; }
+      if (t.dataset.type === "move") { s.close(); setTimeout(() => moveForm(), 80); return; }
+      if (t.dataset.iacct) { f.acct = t.dataset.iacct; draw(); return; }   // 等上一頁的返回處理完再開
       if (t.dataset.type) {          // 收入通常不是用「付款方式」：切到收入先空著，切回支出用上次的
-        if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; draw(); }
+        if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; f.acct = f.type === "in" ? C.acctFor(data, "in", "") : ""; draw(); }
         return;
       }
       if (t.dataset.cat) { if (f.cat !== t.dataset.cat) { f.cat = t.dataset.cat; f.sub = ""; } draw(); return; }
@@ -353,6 +360,13 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
 }
 
 function useShortcut(sc) {
+  if (sc.type === "move") {
+    if (!(data.accounts.some((a) => a.id === sc.from) && data.accounts.some((a) => a.id === sc.to))) return toast("這個捷徑的帳戶不見了");
+    if (!sc.amt) return moveForm(null, { from: sc.from, to: sc.to, note: sc.note });
+    const rec = { id: C.newId(), from: sc.from, to: sc.to, amt: sc.amt, date: today(), note: sc.note || "", t: Date.now() };
+    commit({ ...data, moves: [...data.moves, rec] });
+    return toast(`已記：${scLabel(sc)} ${C.money(sc.amt)}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id) }) });
+  }
   if (sc.amt > 0) return addItem(C.itemFromShortcut(sc, sc.amt, today()));
   quickAmount({ type: sc.type, cat: sc.cat, sub: sc.sub, pay: sc.pay, note: sc.note, title: C.shortcutLabel(sc) });
 }
@@ -473,8 +487,14 @@ function itemRow(x) {
     <span style="min-width:0"><div class="name">${esc(x.sub || x.cat)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}</span>
     <span class="amt ${x.type}">${x.type === "in" ? "+" : "−"}${C.money(x.amt)}</span></button>`;
 }
-function dayList(list) {
-  return C.byDay(list).map((d) => `<div class="day-h"><b>${esc(C.dayLabel(d.date, today()))}</b><span class="num">支出 ${C.money(d.out)}${d.in ? `　收入 ${C.money(d.in)}` : ""}</span></div>${d.items.map(itemRow).join("")}`).join("");
+function dayList(list, moves = []) {
+  const days = C.byDay(list), md = new Map();
+  for (const m of moves) { if (!md.has(m.date)) md.set(m.date, []); md.get(m.date).push(m); }
+  const dates = [...new Set([...days.map((d) => d.date), ...md.keys()])].sort().reverse();
+  return dates.map((date) => {
+    const d = days.find((x) => x.date === date) || { items: [], out: 0, in: 0 }, ms = (md.get(date) || []).sort((a, b) => b.t - a.t);
+    return `<div class="day-h"><b>${esc(C.dayLabel(date, today()))}</b><span class="num">支出 ${C.money(d.out)}${d.in ? `　收入 ${C.money(d.in)}` : ""}</span></div>${d.items.map(itemRow).join("")}${ms.map(moveRow).join("")}`;
+  }).join("");
 }
 // 搜尋結果（只重畫這一塊，輸入框不動：注音、倉頡選字到一半才不會被打斷）
 function searchResults(q) {
@@ -489,6 +509,7 @@ function renderHome() {
       <div id="sres">${searchResults(ui.search)}</div>`;
   }
   const s = data.prefs.monthStart, list = C.periodItems(data.items, ui.period, s), t = C.totals(list), b = C.budgetStatus(data, ui.period, today());
+  const pMoves = data.moves.filter((m) => C.inPeriod(m.date, ui.period, s));
   let hero;
   if (b.total > 0) {
     const ratio = Math.min(1, b.spent / b.total);
@@ -508,11 +529,11 @@ function renderHome() {
     C.needBackup(data) ? `<div class="note">${ico("download")}<span>超過 30 天沒備份了。換手機或清除瀏覽器資料時帳會不見，<button data-goto="backup">現在匯出備份</button></span></div>` : "",
   ].join("");
   const chips = data.shortcuts.length
-    ? `<div class="chips">${data.shortcuts.map((sc) => `<button class="chip" data-sc="${esc(sc.id)}">${esc(C.shortcutLabel(sc))}${sc.amt ? ` <span class="num">${C.money(sc.amt)}</span>` : ""}</button>`).join("")}<button class="chip add" data-goto="shortcuts">${ico("plus")}捷徑</button></div>`
+    ? `<div class="chips">${data.shortcuts.map((sc) => `<button class="chip" data-sc="${esc(sc.id)}">${esc(scLabel(sc))}${sc.amt ? ` <span class="num">${C.money(sc.amt)}</span>` : ""}</button>`).join("")}<button class="chip add" data-goto="shortcuts">${ico("plus")}捷徑</button></div>`
     : "";
   return `${periodNav(`<button class="icon-btn" data-search aria-label="搜尋">${ico("search")}</button>`)}
-    <section class="hero">${hero}</section>${friendSummary()}${notes}${chips}
-    ${list.length ? dayList(list) : `<div class="empty">這期還沒有紀錄。<br>點下面的 ＋ 記一筆；按住 ＋ 往上劃，可以一次選好付款方式和分類。</div>`}`;
+    <section class="hero">${hero}</section>${acctRow()}${friendSummary()}${notes}${chips}
+    ${list.length || pMoves.length ? dayList(list, pMoves) : `<div class="empty">這期還沒有紀錄。<br>點下面的 ＋ 記一筆；按住 ＋ 往上劃，可以一次選好付款方式和分類。</div>`}`;
 }
 
 // ================================================================ 統計
@@ -569,6 +590,7 @@ function renderCal() {
 const MORE = [
   ["debts", "handshake", "借入借出", () => { const d = C.debtSummary(data.debts); return d.owedToMe || d.iOwe ? `別人欠我 ${C.money(d.owedToMe)}・我欠別人 ${C.money(d.iOwe)}` : "借錢給誰、跟誰借，還清就打勾"; }],
   ["goals", "piggy-bank", "存錢目標", () => { const g = data.goals.filter((x) => !x.done); return g.length ? g.map((x) => `${x.name} ${Math.round(C.goalProgress(x) * 100)}%`).join("・") : "例如旅行基金，記每次存了多少"; }],
+  ["accts", "wallet", "帳戶", () => { const b = C.acctBalances(data); return data.accounts.map((a) => `${a.name} ${C.money(b[a.id])}`).join("・"); }],
   ["budget", "target", "每月預算", () => (data.budget.total ? `每期 ${C.money(data.budget.total)}` : "還沒設定")],
   ["recurring", "repeat", "固定收支", () => (data.recurring.length ? `${data.recurring.filter((r) => !r.off).length} 筆，每月自動記` : "房租、電話費、薪水…每月自動記")],
   ["cats", "tags", "分類", () => `支出 ${data.cats.out.length} 類・收入 ${data.cats.in.length} 類`],
@@ -587,11 +609,12 @@ const FRIENDS_ROW = ["friends", "users", "朋友分帳", () => {
 }];
 const subHead = (title, extra = "") => `<header class="top"><button class="icon-btn" data-back aria-label="回上一頁">${ico("chevron-left")}</button><h1 class="left">${esc(title)}</h1>${extra}</header>`;
 function renderMore() {
-  const page = { friends: pgFriends, debts: pgDebts, goals: pgGoals, budget: pgBudget, recurring: pgRecurring, cats: pgCats, pays: pgPays, shortcuts: pgShortcuts, wheel: pgWheel, theme: pgTheme, start: pgStart, backup: pgBackup, install: pgInstall, clear: pgClear }[ui.more];
+  const page = { accts: pgAccts, friends: pgFriends, debts: pgDebts, goals: pgGoals, budget: pgBudget, recurring: pgRecurring, cats: pgCats, pays: pgPays, shortcuts: pgShortcuts, wheel: pgWheel, theme: pgTheme, start: pgStart, backup: pgBackup, install: pgInstall, clear: pgClear }[ui.more];
   if (page) return page();
   return `<header class="top"><h1 class="left">更多</h1></header>
     ${[...(data.prefs.friend ? [FRIENDS_ROW] : []), ...MORE.slice(0, 2)].map(menuRow).join("")}<div class="sec-h"><span>設定</span></div>${MORE.slice(2).map(menuRow).join("")}
     <button class="menu-row" data-goto="clear" style="color:var(--bad)">${ico("trash")}<span class="t">清除全部資料</span></button>
+    ${data.prefs.friend ? "" : `<button class="btn text small" data-fcode style="padding:12px 0 0">${ico("users")}輸入朋友帳連動碼（LINE 記帳群組）</button>`}
     <p class="foot">帳只存在這台裝置，不會上傳到任何地方；每個人的手機是各自的帳本。記得偶爾「匯出備份」。版本 ${VERSION}</p>`;
 }
 function menuRow([id, icon, title, sub]) {
@@ -683,7 +706,7 @@ function pairBlocks(gid) {
   return mine.map(block).join("") + other;
 }
 async function linkFriend(link) {
-  if (!link) return toast("這不是連動連結：請私訊 LINE 記帳機器人「連動碼」，用它給的連結");
+  if (!link) return toast("連動碼不對：請私訊 LINE 記帳機器人「連動碼」，打它回的 8 個字");
   if (!(await sure("連上 LINE 朋友帳？", "連上後，這台手機看得到你有參加的 LINE 記帳群組，也能在這裡記帳；你分到的那份會自動算進支出。", "連上"))) return;
   const { friends, friendQ, ...rest } = data;
   commit({ ...rest, prefs: { ...data.prefs, friend: { ...link, auto: true } } }, { quiet: true });
@@ -710,8 +733,8 @@ function pgFriends() {
   const f = data.prefs.friend;
   if (!f) return `${subHead("朋友分帳")}
     <p>和 LINE 的記帳群組連在一起：在 LINE 打「午餐 120」記的帳，這裡看得到；在這裡記的，也會進同一本帳。</p>
-    <ol class="steps"><li>在 LINE 私訊記帳機器人「連動碼」。</li><li>用這支手機點它回的連結。</li><li>iPhone 從主畫面打開 App 的話：連結會開在 Safari，請長按連結「拷貝」，回到 App 按下面的「貼上連動連結」。</li></ol>
-    <div class="row-btns"><button class="btn primary grow" data-fpaste>貼上連動連結</button></div>
+    <ol class="steps"><li>在 LINE 私訊記帳機器人「連動碼」。</li><li>它會回一組 8 個字的連動碼，例如 K7P2-9QXA。</li><li>按下面的「輸入連動碼」，打進去就連上了。</li></ol>
+    <div class="row-btns"><button class="btn primary grow" data-fcode>輸入連動碼</button></div>
     <p class="small muted">只看得到你有參加的群組；沒連動的人（例如家人）完全看不到。</p>`;
   const F = fr(), g = ui.fg && F.groups.find((x) => x.id === ui.fg), q = (data.friendQ || []).length;
   const status = `<p class="small muted fstat">${fst.busy ? "同步中…" : F.at ? `上次同步 ${mmdd(F.at)} ${new Date(F.at).toTimeString().slice(0, 5)}` : "還沒同步"}${q ? `・${q} 筆等著上傳` : ""}</p>
@@ -727,6 +750,7 @@ function pgFriends() {
         <span class="num${e.kind === "pay" ? " muted" : ""}">${C.money(e.amt)}</span></button>`).join("") || `<div class="empty">這個群組還沒有帳。</div>`}`;
   }
   return `${subHead("朋友分帳", syncBtn)}${status}
+    <div class="row-btns"><button class="btn grow" data-fnew>${ico("plus")}新增一群朋友</button></div>
     ${F.groups.map((x) => `<button class="menu-row" data-fg="${esc(x.id)}" style="align-items:flex-start"><span class="t"><b>${esc(x.name)}</b>${balLines(x.id, true)}</span><span class="chev">${ico("chevron-right")}</span></button>`).join("")
       || (F.at ? `<div class="empty">你還沒在任何記帳群組裡說過話。<br>到 LINE 群組打一句「查詢」，再回來同步。</div>` : "")}
     <div class="sec-h"><span>設定</span></div>
@@ -833,6 +857,17 @@ function friendQuick(p, cat) {
     el.addEventListener("input", (e) => { if (e.target.id === "fq-note") st.note = e.target.value; });
   });
 }
+function newGroupHelp() {
+  const bot = fr().bot;
+  openSheet((el, s) => {
+    el.innerHTML = `<div class="sheet-h"><h3>新增一群朋友</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      <p style="margin:0 0 8px">一個 LINE 群組＝一本分帳本，想開幾本都可以，各算各的。</p>
+      <ol class="steps"><li>在 LINE 開一個群組，把要一起記帳的朋友拉進來。</li><li>把記帳機器人也邀進群組（它要先是你的好友）。</li><li>群組裡每個人打一句「查詢」，機器人才認得大家。</li><li>回到這裡按右上角的同步，新的群組就出現了。</li></ol>
+      <p class="small muted">朋友想在自己的記帳 App 裡看帳：請他私訊機器人「連動碼」，在 App 的「更多」最下面輸入。</p>
+      ${bot ? `<div class="row-btns"><a class="btn primary grow" href="https://line.me/R/ti/p/${esc(bot)}" target="_blank" rel="noopener">在 LINE 加機器人好友</a></div><p class="small muted">機器人的 ID：<b>${esc(bot)}</b>（可以傳給朋友，讓他加好友）</p>` : ""}`;
+    el.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) s.close(); });
+  });
+}
 async function friendEntry(id) {
   const e = fr().entries.find((x) => x.id === id);
   if (!e) return;
@@ -840,6 +875,126 @@ async function friendEntry(id) {
   const v = await ask(`${e.item} ${C.money(e.amt)}`, `${describeF(e)}・${mmdd(e.t)}・${e.src === "App" ? "在 App 記的" : "在 LINE 記的"}${mine ? "" : `（${fname(e.by, e.g)} 記的，只有記的人能刪）`}`,
     mine ? [["no", "關閉"], ["del", "刪除這筆", "danger"]] : [["no", "關閉"]]);
   if (v === "del") queueFriend({ op: "del", id });
+}
+
+// ---- 帳戶（郵局、錢包、信用卡）與移動
+const aName = (id) => C.acctName(data, id);
+const scLabel = (sc) => (sc.type === "move" ? sc.label || C.moveLabel(data, sc) : C.shortcutLabel(sc));
+// 首頁：各帳戶餘額＋移動按鈕；有卡費要繳就提醒
+function acctRow() {
+  if (!C.acctShown(data)) return "";
+  const bal = C.acctBalances(data);
+  const bills = data.accounts.map((a) => ({ a, b: C.cardBill(data, a, today()) })).filter((x) => x.b?.amount > 0);
+  return `<div class="accts">${data.accounts.map((a) => `<button class="acct" data-goto="accts"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
+      ${data.accounts.length > 1 ? `<button class="btn acct-mv" data-move>${ico("repeat")}移動</button>` : ""}</div>
+    ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}`;
+}
+function moveRow(m) {
+  return `<button class="item mv" data-move-id="${esc(m.id)}"><span class="cat-ico">${ico("repeat")}</span>
+    <span style="min-width:0"><div class="name">${esc(C.moveLabel(data, m))}</div>${m.note ? `<div class="meta">${esc(m.note)}</div>` : ""}</span>
+    <span class="amt mv">${C.money(m.amt)}</span></button>`;
+}
+// 移動：從一個帳戶到另一個（提款、存錢、繳卡費）。不算支出、不算收入
+function moveForm(m = null, preset = {}) {
+  if (data.accounts.length < 2) { toast("先到「更多 → 帳戶」新增第二個帳戶（例如郵局）"); return go("more", "accts"); }
+  const last = lsGet("ledger-move-last", {}), has = (id) => data.accounts.some((a) => a.id === id);
+  const from = [preset.from, last.from, "bank", data.accounts[0].id].find(has);
+  const to = [preset.to, last.to, "cash", ...data.accounts.map((a) => a.id)].find((id) => has(id) && id !== from);
+  const st = m ? { ...m, expr: String(m.amt) } : { from, to, expr: preset.amt ? String(preset.amt) : "", date: today(), note: preset.note || "", sc: false };
+  openSheet((el, s) => {
+    const draw = () => {
+      const chips = (attr, cur, skip) => `<div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.id !== skip).map((a) => `<button class="chip${a.id === cur ? " on" : ""}" data-${attr}="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div>`;
+      el.innerHTML = `<div class="sheet-h"><h3>${m ? "修改移動" : "移動"}</h3>${m ? `<button class="btn text danger" data-mdel>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <p class="small muted" style="margin:0 0 8px">錢從一個帳戶換到另一個（提款、存錢、繳卡費），不算支出。</p>
+        <div class="field"><span class="lab">從</span>${chips("mfrom", st.from)}</div>
+        <div class="field"><span class="lab">到</span>${chips("mto", st.to, st.from)}</div>
+        <div class="amt-disp"></div>
+        <div class="field"><label for="m-date">日期</label><input id="m-date" type="date" value="${esc(st.date)}"></div>
+        <div class="field"><label for="m-note">備註</label><input id="m-note" value="${esc(st.note)}" maxlength="200" placeholder="例如：提款、繳卡費"></div>
+        ${m ? "" : `<label class="check"><input type="checkbox" data-msc${st.sc ? " checked" : ""}> 存成常用捷徑（首頁一點就記）</label>`}
+        ${keypadHTML()}`;
+      bindKeypad(el, st, (amt) => {
+        if (st.from === st.to) return toast("「從」和「到」要不一樣");
+        const rec = { id: m?.id || C.newId(), from: st.from, to: st.to, amt, date: st.date || today(), note: st.note.trim(), t: m?.t || Date.now() };
+        s.close();
+        lsSet("ledger-move-last", { from: rec.from, to: rec.to });
+        let next = { ...data, moves: m ? data.moves.map((x) => (x.id === m.id ? rec : x)) : [...data.moves, rec] };
+        if (st.sc) next = { ...next, shortcuts: [...next.shortcuts, { id: C.newId(), label: rec.note.slice(0, 12), type: "move", from: rec.from, to: rec.to, amt, note: rec.note }] };
+        commit(next);
+        if (!m) toast(`已記：${C.moveLabel(data, rec)} ${C.money(amt)}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id) }) });
+        else toast("改好了");
+      });
+    };
+    draw();
+    el.addEventListener("click", async (e) => {
+      const t = e.target.closest("button, input[type=checkbox]");
+      if (!t) return;
+      const d = t.dataset;
+      if (d.close !== undefined) return s.close();
+      if (d.mfrom) { st.from = d.mfrom; if (st.to === st.from) st.to = data.accounts.find((a) => a.id !== st.from).id; draw(); }
+      if (d.mto) { st.to = d.mto; draw(); }
+      if (d.msc !== undefined) st.sc = t.checked;
+      if (d.mdel !== undefined && (await sure("刪除這筆移動？", `${C.moveLabel(data, m)} ${C.money(m.amt)}`, "刪除", "danger"))) { s.close(); commit({ ...data, moves: data.moves.filter((x) => x.id !== m.id) }); }
+    });
+    el.addEventListener("input", (e) => { if (e.target.id === "m-note") st.note = e.target.value; if (e.target.id === "m-date") st.date = e.target.value; });
+  });
+}
+function pgAccts() {
+  const bal = C.acctBalances(data), sel = (attr, cur) => `<select ${attr}>${data.accounts.map((a) => `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>`;
+  return `${subHead("帳戶")}<p class="small muted">錢放在哪裡。下面設定好「付款方式從哪裡扣」，記帳時就會自動從對的帳戶扣，不用每次選。帳戶之間搬錢（提款、繳卡費）用「移動」，不算支出。</p>
+    ${data.accounts.map((a) => `<button class="menu-row" data-acct="${esc(a.id)}"><span class="t">${esc(a.name)}<small>${C.ACCT_TYPES[a.type]}${a.card ? `・每月 ${a.card.close} 號結帳、${a.card.due} 號繳` : ""}</small></span><span class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</span><span class="chev">${ico("chevron-right")}</span></button>`).join("")}
+    <div class="row-btns"><button class="btn grow" data-newacct>${ico("plus")}新增帳戶</button><button class="btn grow" data-preset>快速設定：郵局＋錢包＋信用卡</button></div>
+    ${data.accounts.length > 1 ? `<div class="sec-h"><span>付款方式從哪裡扣</span></div>
+      ${data.pays.map((p) => `<div class="field row"><label>${esc(p)}</label>${sel(`data-payacct="${esc(p)}"`, C.acctFor(data, "out", p))}</div>`).join("")}
+      <p class="small muted">要加 LINE Pay、悠遊卡這類付款方式，到「更多 → 付款方式」新增，再回來選從哪裡扣。</p>
+      <div class="sec-h"><span>其他</span></div>
+      <div class="field row"><label>收入預設存入</label>${sel('id="in-acct"', C.acctFor(data, "in", ""))}</div>
+      <div class="field row"><label>沒選付款方式時從</label>${sel('id="out-acct"', data.prefs.outAcct)}</div>
+      <p class="small muted">改設定只影響之後記的帳，以前記的照舊。朋友帳自動補的那份不扣帳戶（是朋友先付的）。</p>` : ""}`;
+}
+function acctForm(a = null) {
+  const f = a ? { ...a, openS: String(a.type === "card" ? -a.open : a.open), card: a.card ? { ...a.card } : { close: 5, due: 20, from: "" } } : { id: "", name: "", type: "bank", openS: "", card: { close: 5, due: 20, from: "" } };
+  openSheet((el, s) => {
+    const days = (id, v) => `<select id="${id}">${Array.from({ length: 28 }, (_, i) => `<option${i + 1 === v ? " selected" : ""}>${i + 1}</option>`).join("")}</select>`;
+    const draw = () => {
+      const others = data.accounts.filter((x) => x.id !== f.id && x.type !== "card");
+      el.innerHTML = `<div class="sheet-h"><h3>${a ? "修改帳戶" : "新增帳戶"}</h3>${a && data.accounts.length > 1 ? `<button class="btn text danger" data-adel>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <div class="seg" style="margin-bottom:8px">${Object.entries(C.ACCT_TYPES).map(([k, v]) => `<button data-atype="${k}" class="${f.type === k ? "on" : ""}">${v}</button>`).join("")}</div>
+        <div class="field"><label for="a-name">名稱</label><input id="a-name" value="${esc(f.name)}" maxlength="12" placeholder="${{ bank: "例如：郵局", cash: "例如：錢包", card: "例如：國泰卡" }[f.type]}"></div>
+        <div class="field"><label for="a-open">${f.type === "card" ? "現在已經欠多少" : "現在有多少錢"}</label><input id="a-open" inputmode="numeric" value="${esc(f.openS)}" placeholder="0"></div>
+        <p class="small muted" style="margin:0">${f.type === "card" ? "還沒繳的卡費總額；之後刷卡會自動加上去。" : "打開 App 這天帳戶裡的錢，之後的收支會自動加減。"}</p>
+        ${f.type === "card" ? `<div class="field row"><label for="a-close">每月幾號結帳</label>${days("a-close", f.card.close)}</div>
+          <div class="field row"><label for="a-due">每月幾號繳</label>${days("a-due", f.card.due)}</div>
+          <div class="field row"><label for="a-from">卡費從哪裡繳</label><select id="a-from">${others.map((x) => `<option value="${esc(x.id)}"${x.id === f.card.from ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div>` : ""}
+        <div class="row-btns"><button class="btn primary grow" data-asave>存起來</button></div>`;
+    };
+    draw();
+    el.addEventListener("input", (e) => { const id = e.target.id; if (id === "a-name") f.name = e.target.value; if (id === "a-open") f.openS = e.target.value; });
+    el.addEventListener("change", (e) => { const id = e.target.id, v = e.target.value; if (id === "a-close") f.card.close = +v; if (id === "a-due") f.card.due = +v; if (id === "a-from") f.card.from = v; });
+    el.addEventListener("click", async (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      const d = t.dataset;
+      if (d.close !== undefined) return s.close();
+      if (d.atype) { f.type = d.atype; draw(); }
+      if (d.adel !== undefined) {
+        if (!(await sure(`刪除「${a.name}」？`, "用它記的帳會改算到其他帳戶；和它有關的移動、捷徑會一起刪掉。", "刪除", "danger"))) return;
+        s.close(); return commit(C.removeAccount(data, a.id));
+      }
+      if (d.asave !== undefined) {
+        const name = f.name.trim().slice(0, 12);
+        if (!name) return toast("寫一下名稱");
+        const n = f.openS.trim() ? Math.round(Number(f.openS.replace(/,/g, ""))) : 0;
+        if (!Number.isFinite(n)) return toast("金額請打整數");
+        const others = data.accounts.filter((x) => x.id !== f.id && x.type !== "card");
+        const rec = { id: f.id || "a" + C.newId().slice(-6), name, type: f.type, open: f.type === "card" ? -Math.abs(n) : n,
+          ...(f.type === "card" ? { card: { close: f.card.close, due: f.card.due, from: others.some((x) => x.id === f.card.from) ? f.card.from : others[0]?.id || "" } } : {}) };
+        s.close();
+        commit({ ...data, accounts: a ? data.accounts.map((x) => (x.id === a.id ? rec : x)) : [...data.accounts, rec] });
+        toast(a ? "改好了" : `新增了「${name}」`);
+      }
+    });
+  });
 }
 
 // ---- 借入借出
@@ -1070,9 +1225,10 @@ function pgPays() {
 
 // ---- 常用捷徑
 function pgShortcuts() {
-  return `${subHead("常用捷徑")}<p class="small muted">常記的東西（早餐 60、捷運…）存成捷徑，首頁一點就記好；沒寫金額的會跳出鍵盤只打金額。記一筆時也可以勾「存成常用捷徑」。</p>
+  return `${subHead("常用捷徑")}<p class="small muted">常記的東西（早餐 60、捷運…）存成捷徑，首頁一點就記好；沒寫金額的會跳出鍵盤只打金額。記一筆、記移動（例如提款 1000）時也可以勾「存成常用捷徑」。</p>
     <div class="row-btns"><button class="btn primary grow" data-newsc>${ico("plus")}新增捷徑</button></div>
-    ${data.shortcuts.map((sc) => `<div class="list-row"><span class="cat-ico">${ico(catIcon(sc.type, sc.cat))}</span><span class="t">${esc(C.shortcutLabel(sc))}<small>${esc([sc.cat, sc.sub, sc.pay].filter(Boolean).join("・"))}${sc.amt ? `・${C.money(sc.amt)}` : "・每次打金額"}</small></span>
+    ${data.shortcuts.map((sc) => sc.type === "move" ? `<div class="list-row"><span class="cat-ico">${ico("repeat")}</span><span class="t">${esc(scLabel(sc))}<small>移動・${esc(C.moveLabel(data, sc))}${sc.amt ? `・${C.money(sc.amt)}` : "・每次打金額"}</small></span>
+      <button class="icon-btn" data-delsc="${esc(sc.id)}" aria-label="刪除">${ico("trash")}</button></div>` : `<div class="list-row"><span class="cat-ico">${ico(catIcon(sc.type, sc.cat))}</span><span class="t">${esc(C.shortcutLabel(sc))}<small>${esc([sc.cat, sc.sub, sc.pay].filter(Boolean).join("・"))}${sc.amt ? `・${C.money(sc.amt)}` : "・每次打金額"}</small></span>
       <button class="icon-btn" data-editsc="${esc(sc.id)}" aria-label="修改">${ico("pencil")}</button></div>`).join("") || `<div class="empty">還沒有捷徑。</div>`}`;
 }
 
@@ -1201,6 +1357,13 @@ async function onClick(e) {
   if (d.search !== undefined) { ui.search = ""; return render(); }
   if (d.searchClose !== undefined) { ui.search = null; return render(); }
   if (d.item) { const it = data.items.find((x) => x.id === d.item); if (it) openForm(it); return; }
+  if (d.moveId) { const m = data.moves.find((x) => x.id === d.moveId); if (m) moveForm(m); return; }
+  if (d.move !== undefined) return moveForm();
+  if (d.paycard) { const a = data.accounts.find((x) => x.id === d.paycard), b = a && C.cardBill(data, a, today()); if (b) moveForm(null, { from: a.card.from, to: a.id, amt: b.amount, note: "繳卡費" }); return; }
+  if (d.acct) return acctForm(data.accounts.find((x) => x.id === d.acct));
+  if (d.newacct !== undefined) return acctForm();
+  if (d.preset !== undefined) { if (await sure("快速設定帳戶？", "建立「郵局、錢包、信用卡」三個帳戶：現金從錢包扣、信用卡記在卡上、其他付款方式從郵局扣，收入存進郵局。名稱和金額之後都可以改。", "設定")) { commit(C.presetAccounts(data)); toast("設好了，點帳戶填現在有多少錢"); } return; }
+  if (d.delsc) { if (await sure("刪除這個捷徑？", "", "刪除", "danger")) commit({ ...data, shortcuts: data.shortcuts.filter((x) => x.id !== d.delsc) }); return; }
   if (d.sc) { const sc = data.shortcuts.find((x) => x.id === d.sc); if (sc) useShortcut(sc); return; }
   if (d.goto) return go("more", d.goto);
   if (d.back !== undefined) return history.back();
@@ -1215,6 +1378,8 @@ async function onClick(e) {
   if (d.fadd !== undefined) return friendForm("exp");
   if (d.frepay !== undefined) return friendForm("pay");
   if (d.fe) return friendEntry(d.fe);
+  if (d.fcode !== undefined) { const v = await ask("輸入連動碼", "私訊 LINE 記帳機器人「連動碼」，把它回的 8 個字打在這裡（例如 K7P2-9QXA），大小寫都可以。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseCode(v)); return; }
+  if (d.fnew !== undefined) return newGroupHelp();
   if (d.fpaste !== undefined) { const v = await ask("貼上連動連結", "私訊 LINE 記帳機器人「連動碼」，把它回的連結整段貼在這裡。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseLink(v)); return; }
   if (d.funlink !== undefined) {
     if (!(await sure("解除連動？", "這台手機就不會再看到朋友帳。已經算進支出的那幾筆會留著（可以自己刪）。LINE 群組裡的帳不受影響。", "解除", "danger"))) return;
@@ -1253,7 +1418,7 @@ async function onClick(e) {
   if (d.keyh !== undefined) { const v = +d.keyh ? C.clampKeyH(data.prefs.keyH + +d.keyh) : C.KEY_H.def; return commit({ ...data, prefs: { ...data.prefs, keyH: v } }); }
   if (d.export !== undefined) return exportBackup();
   if (d.import !== undefined) return $("#imp").click();
-  if (d.csv !== undefined) { const ok = await download(`記帳-${today().replace(/-/g, "")}.csv`, C.toCSV(data.items), "text/csv"); if (ok) toast("CSV 匯出了，可以用 Excel 或 Google 試算表打開"); return; }
+  if (d.csv !== undefined) { const ok = await download(`記帳-${today().replace(/-/g, "")}.csv`, C.toCSV(data.items, data.moves, aName), "text/csv"); if (ok) toast("CSV 匯出了，可以用 Excel 或 Google 試算表打開"); return; }
   if (d.install !== undefined) { const ev = window.ledgerInstall; if (ev) { ev.prompt(); const r = await ev.userChoice.catch(() => ({})); if (r.outcome === "accepted") window.ledgerInstall = null; render(); } return; }
   if (d.clearall !== undefined) {
     const v = await ask("真的要清除全部資料？", "請輸入「清除」兩個字確認。", [["no", "取消"], ["ok", "清除全部", "danger"]], "");
@@ -1274,6 +1439,9 @@ function onChange(e) {
     if (t.checked) { if (cur.length >= FRIEND_WHEEL_MAX) { t.checked = false; return toast(`最多 ${FRIEND_WHEEL_MAX} 個，先取消一個`); } cur.push(t.dataset.wfr); }
     lsSet("ledger-friend-wheel", cur); return render();
   }
+  if (t.dataset.payacct !== undefined) return commit({ ...data, payAcct: { ...data.payAcct, [t.dataset.payacct]: t.value } });
+  if (t.id === "in-acct") return commit({ ...data, prefs: { ...data.prefs, inAcct: t.value } });
+  if (t.id === "out-acct") return commit({ ...data, prefs: { ...data.prefs, outAcct: t.value } });
   if (t.id === "f-auto") { commit({ ...data, prefs: { ...data.prefs, friend: { ...data.prefs.friend, auto: t.checked } } }); if (t.checked) syncFriends(); return; }
   if (t.id === "m-start") { commit({ ...data, prefs: { ...data.prefs, monthStart: Number(t.value) } }); ui.period = periodNow(); return render(); }
   if (t.dataset.wpay !== undefined || t.dataset.wcat !== undefined) {

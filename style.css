@@ -293,3 +293,17 @@ button.list-row { width: 100%; border: 0; border-bottom: 1px solid var(--line-2)
 .pair-net b { font-weight: 500; }
 .pair-rows span { display: block; font-size: 14px; color: var(--muted); }
 .wheel .sg.fr:not(.hot):not(.picked) { fill: var(--info-bg); }
+
+/* 帳戶 */
+.accts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-top: 12px; }
+.acct { flex: 1 1 0; min-width: 88px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: inherit; font: inherit; text-align: left; }
+.acct small { display: block; color: var(--muted); font-size: var(--fs-small); }
+.acct b { font-weight: 500; font-size: 17px; }
+.acct-mv { flex: 0 0 auto; }
+.num.neg { color: var(--ink); }
+.item.mv .name, .amt.mv { color: var(--muted); }
+.acct-hint { margin: 4px 0 0; }
+.field.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field.row label { flex: 1; }
+.field.row select { width: auto; min-width: 120px; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }

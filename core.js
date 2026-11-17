@@ -24,6 +24,8 @@ export const DEFAULT_CATS = {
 };
 export const DEFAULT_PAYS = ["現金", "信用卡", "行動支付"];
 export const WHEEL_MAX = { cats: 8, pays: 4 };
+export const ACCT_TYPES = { cash: "現金", bank: "銀行", card: "信用卡" };
+const DEFAULT_ACCTS = [{ id: "cash", name: "錢包", type: "cash", open: 0 }];
 
 export function emptyData() {
   const cats = { out: DEFAULT_CATS.out.map((c) => ({ ...c, subs: [...c.subs] })), in: DEFAULT_CATS.in.map((c) => ({ ...c, subs: [...c.subs] })) };
@@ -31,7 +33,8 @@ export function emptyData() {
     v: 1, items: [], cats, pays: [...DEFAULT_PAYS], shortcuts: [],
     wheel: { cats: cats.out.slice(0, 8).map((c) => c.name), pays: [...DEFAULT_PAYS] },
     budget: { total: 0, cats: {} }, recurring: [], debts: [], goals: [],
-    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52 }, lastBackup: 0,
+    accounts: DEFAULT_ACCTS.map((a) => ({ ...a })), payAcct: {}, moves: [],
+    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash" }, lastBackup: 0,
   };
 }
 
@@ -254,11 +257,13 @@ export function renamePay(data, from, to) {
   return {
     ...data, pays: [...new Set(data.pays.map((p) => (p === from ? to : p)))], items: data.items.map(fix), shortcuts: data.shortcuts.map(fix), recurring: data.recurring.map(fix),
     wheel: { ...data.wheel, pays: [...new Set(data.wheel.pays.map((p) => (p === from ? to : p)))] }, prefs: { ...data.prefs, lastPay: data.prefs.lastPay === from ? to : data.prefs.lastPay },
+    payAcct: Object.fromEntries(Object.entries(data.payAcct || {}).map(([k, v]) => [k === from ? to : k, v])),
   };
 }
 // 刪付款方式：以前的紀錄照舊寫著（只是選單裡沒有了）
 export function removePay(data, name) {
-  return { ...data, pays: data.pays.filter((p) => p !== name), wheel: { ...data.wheel, pays: data.wheel.pays.filter((p) => p !== name) } };
+  const { [name]: _, ...payAcct } = data.payAcct || {};
+  return { ...data, pays: data.pays.filter((p) => p !== name), wheel: { ...data.wheel, pays: data.wheel.pays.filter((p) => p !== name) }, payAcct };
 }
 
 // ---------------------------------------------------------------- 備份：讀進來的資料檢查、修好；還原時合併
@@ -273,7 +278,7 @@ export function cleanData(raw) {
   for (const x of raw.items) {
     if (!x || (x.type !== "out" && x.type !== "in") || !(int(x.amt) > 0) || !isDate(x.date)) continue;
     items.push({ id: str(x.id || newId(), 60), type: x.type, amt: int(x.amt), cat: str(x.cat || "其他", 12), sub: str(x.sub, 12), pay: str(x.pay, 12),
-      date: x.date, note: str(x.note, 200), t: Number(x.t) || 0, ...(x.rec ? { rec: str(x.rec, 60) } : {}) });
+      date: x.date, note: str(x.note, 200), t: Number(x.t) || 0, ...(x.rec ? { rec: str(x.rec, 60) } : {}), ...(typeof x.acct === "string" && x.acct ? { acct: str(x.acct, 20) } : {}) });
   }
   const cats = {};
   for (const k of ["out", "in"]) {
@@ -285,7 +290,14 @@ export function cleanData(raw) {
   }
   const pays = Array.isArray(raw.pays) ? [...new Set(raw.pays.map((p) => str(p, 12)).filter(Boolean))] : base.pays;
   const okType = (x) => x && (x.type === "out" || x.type === "in");
-  const shortcuts = (Array.isArray(raw.shortcuts) ? raw.shortcuts : []).filter(okType).map((s) => ({ id: str(s.id || newId(), 60), label: str(s.label, 12), type: s.type, cat: str(s.cat, 12), sub: str(s.sub, 12), pay: str(s.pay, 12), amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200) }));
+  const accounts = cleanAccounts(raw.accounts), aid = new Set(accounts.map((a) => a.id)), okA = (v) => (aid.has(v) ? v : "");
+  const shortcuts = (Array.isArray(raw.shortcuts) ? raw.shortcuts : []).filter((s) => okType(s) || (s?.type === "move" && okA(s.from) && okA(s.to) && s.from !== s.to)).map((s) => (s.type === "move"
+    ? { id: str(s.id || newId(), 60), label: str(s.label, 12), type: "move", from: s.from, to: s.to, amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200) }
+    : { id: str(s.id || newId(), 60), label: str(s.label, 12), type: s.type, cat: str(s.cat, 12), sub: str(s.sub, 12), pay: str(s.pay, 12), amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200) }));
+  const payAcct = {};
+  for (const [k, v] of Object.entries(raw.payAcct || {})) if (pays.includes(k) && okA(v)) payAcct[k] = v;
+  const moves = (Array.isArray(raw.moves) ? raw.moves : []).filter((m) => m && okA(m.from) && okA(m.to) && m.from !== m.to && int(m.amt) > 0 && isDate(m.date))
+    .map((m) => ({ id: str(m.id || newId(), 60), from: m.from, to: m.to, amt: int(m.amt), date: m.date, note: str(m.note, 200), t: Number(m.t) || 0 }));
   const recurring = (Array.isArray(raw.recurring) ? raw.recurring : []).filter((r) => okType(r) && int(r.amt) > 0 && isMonth(r.from)).map((r) => ({ id: str(r.id || newId(), 60), type: r.type, amt: int(r.amt), cat: str(r.cat, 12), sub: str(r.sub, 12), pay: str(r.pay, 12),
     note: str(r.note, 200), day: Math.min(28, Math.max(1, int(r.day) || 1)), from: r.from, last: isMonth(r.last) ? r.last : "", off: !!r.off }));
   const flows = (list) => (Array.isArray(list) ? list : []).filter((p) => int(p?.amt) > 0 && isDate(p.date)).map((p) => ({ amt: int(p.amt), date: p.date }));
@@ -298,10 +310,11 @@ export function cleanData(raw) {
   for (const [k, v] of Object.entries(raw.budget?.cats || {})) if (outNames.includes(k) && int(v) > 0) bc[k] = int(v);
   const p = raw.prefs || {};
   return {
-    v: 1, items, cats, pays, shortcuts, wheel: { cats: wheelCats, pays: wheelPays }, budget: { total: Math.max(0, int(raw.budget?.total)), cats: bc }, recurring, debts, goals,
+    v: 1, items, cats, pays, shortcuts, wheel: { cats: wheelCats, pays: wheelPays }, budget: { total: Math.max(0, int(raw.budget?.total)), cats: bc }, recurring, debts, goals, accounts, payAcct, moves,
     prefs: { theme: PALETTES[p.theme] ? p.theme : "terracotta", mode: ["auto", "light", "dark"].includes(p.mode) ? p.mode : "auto",
       monthStart: Math.min(28, Math.max(1, int(p.monthStart) || 1)), lastPay: pays.includes(p.lastPay) ? p.lastPay : pays[0] || "",
       bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH),
+      inAcct: okA(p.inAcct) || accounts[0].id, outAcct: okA(p.outAcct) || accounts[0].id,
       ...(p.friend && parseLink("#link=" + encodeURIComponent(String(p.friend.url || "")) + "~" + String(p.friend.key || "")) ? { friend: { url: String(p.friend.url), key: String(p.friend.key), auto: p.friend.auto !== false } } : {}) },
     lastBackup: Number(raw.lastBackup) || 0,
     ...(cleanFriends(raw.friends) ? { friends: cleanFriends(raw.friends) } : {}),
@@ -314,14 +327,16 @@ export function mergeData(cur, add) {
   const cats = {};
   for (const k of ["out", "in"]) { const list = [...cur.cats[k]]; for (const c of add.cats[k]) { const i = list.findIndex((d) => d.name === c.name); if (i < 0) list.push(c); else list[i] = { ...list[i], subs: [...new Set([...list[i].subs, ...c.subs])] }; } cats[k] = list; }
   return { ...cur, items: byId(cur.items, add.items), cats, pays: [...new Set([...cur.pays, ...add.pays])], shortcuts: byId(cur.shortcuts, add.shortcuts),
-    recurring: byId(cur.recurring, add.recurring), debts: byId(cur.debts, add.debts), goals: byId(cur.goals, add.goals) };
+    recurring: byId(cur.recurring, add.recurring), debts: byId(cur.debts, add.debts), goals: byId(cur.goals, add.goals),
+    accounts: byId(cur.accounts, add.accounts), moves: byId(cur.moves, add.moves), payAcct: { ...add.payAcct, ...cur.payAcct } };
 }
 
 // 匯出成 Excel 打得開的 CSV（前面加 BOM，中文才不會變亂碼）
-export function toCSV(items) {
+export function toCSV(items, moves = [], acctName = (id) => id) {
   const q = (s) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const rows = [["日期", "收支", "分類", "細項", "付款方式", "金額", "備註"],
-    ...sortItems(items).reverse().map((x) => [x.date, x.type === "in" ? "收入" : "支出", x.cat, x.sub || "", x.pay || "", String(x.amt), x.note || ""])];
+    ...sortItems([...items, ...moves.map((m) => ({ ...m, type: "move" }))]).reverse().map((x) => (x.type === "move" ? [x.date, "移動", `${acctName(x.from)} → ${acctName(x.to)}`, "", "", String(x.amt), x.note || ""]
+      : [x.date, x.type === "in" ? "收入" : "支出", x.cat, x.sub || "", x.pay || "", String(x.amt), x.note || ""]))];
   return "﻿" + rows.map((r) => r.map((c) => q(String(c))).join(",")).join("\r\n");
 }
 // 提醒備份：有 10 筆以上、而且超過 30 天沒匯出（從來沒有也算）
@@ -435,7 +450,7 @@ export function cleanFriends(raw) {
   if (!raw || typeof raw !== "object" || typeof raw.me !== "string") return null;
   const s = (v, n) => String(v ?? "").slice(0, n);
   return {
-    me: s(raw.me, 80), at: Number(raw.at) || 0,
+    me: s(raw.me, 80), at: Number(raw.at) || 0, bot: /^@[\w.-]{1,30}$/.test(raw.bot || "") ? raw.bot : "",
     groups: (Array.isArray(raw.groups) ? raw.groups : []).map((g) => ({ id: s(g?.id, 80), name: s(g?.name, 40) })).filter((g) => g.id),
     members: (Array.isArray(raw.members) ? raw.members : []).map((m) => ({ uid: s(m?.uid, 80), g: s(m?.g, 80), name: s(m?.name, 40) })).filter((m) => m.uid && m.g),
     entries: (Array.isArray(raw.entries) ? raw.entries : []).filter((e) => e && Number(e.amt) > 0 && Array.isArray(e.to) && (e.kind === "exp" || e.kind === "pay"))
@@ -458,4 +473,96 @@ export function pairTotals(entries) {
     const p = m[k], v = p.ab - p.apay - (p.ba - p.bpay);
     return { ...p, net: v > 0 ? { from: p.a, to: p.b, amt: v } : v < 0 ? { from: p.b, to: p.a, amt: -v } : null };
   });
+}
+
+// ---------------------------------------------------------------- 帳戶（郵局、錢包、信用卡）與「移動」
+// 每筆支出從哪個帳戶扣：存的時候記在 x.acct；舊紀錄沒有就照「付款方式 → 帳戶」設定。收入進 prefs.inAcct。
+// 朋友帳自動補的那份（fr-）不動帳戶：是朋友先付的，等於欠款。
+function cleanAccounts(raw) {
+  const out = [], seen = new Set();
+  const day = (v, d) => Math.min(28, Math.max(1, int(v) || d));
+  for (const a of Array.isArray(raw) ? raw : []) {
+    const id = str(a?.id, 20), name = str(a?.name, 12).trim();
+    if (!id || !name || seen.has(id) || !ACCT_TYPES[a.type]) continue;
+    seen.add(id);
+    out.push({ id, name, type: a.type, open: int(a.open), ...(a.type === "card" ? { card: { close: day(a.card?.close, 5), due: day(a.card?.due, 20), from: str(a.card?.from, 20) } } : {}) });
+  }
+  if (!out.length) out.push(...DEFAULT_ACCTS.map((a) => ({ ...a })));
+  for (const a of out) if (a.card && (!seen.has(a.card.from) || a.card.from === a.id)) a.card.from = out.find((b) => b.type === "bank")?.id || out.find((b) => b.id !== a.id)?.id || "";
+  return out;
+}
+const hasAcct = (data, id) => !!id && data.accounts.some((a) => a.id === id);
+// 現在記一筆的話，會算到哪個帳戶
+export function acctFor(data, type, pay) {
+  if (type === "in") return hasAcct(data, data.prefs.inAcct) ? data.prefs.inAcct : data.accounts[0].id;
+  const m = (data.payAcct || {})[pay];
+  return hasAcct(data, m) ? m : hasAcct(data, data.prefs.outAcct) ? data.prefs.outAcct : data.accounts[0].id;
+}
+export function acctOf(data, x) {
+  if (String(x.id).startsWith("fr-")) return null;
+  return hasAcct(data, x.acct) ? x.acct : acctFor(data, x.type, x.pay);
+}
+// 各帳戶餘額（until：只算到那天為止）。信用卡是負的＝欠多少
+export function acctBalances(data, until = null) {
+  const bal = Object.fromEntries(data.accounts.map((a) => [a.id, a.open]));
+  for (const x of data.items) {
+    if (until && x.date > until) continue;
+    const a = acctOf(data, x);
+    if (a && a in bal) bal[a] += x.type === "in" ? x.amt : -x.amt;
+  }
+  for (const m of data.moves || []) {
+    if (until && m.date > until) continue;
+    if (m.from in bal) bal[m.from] -= m.amt;
+    if (m.to in bal) bal[m.to] += m.amt;
+  }
+  return bal;
+}
+// 首頁要不要顯示帳戶列：設過起始餘額、或有過移動
+export const acctShown = (data) => data.accounts.some((a) => a.open) || (data.moves || []).length > 0;
+// 信用卡這期要繳多少：最近一次結帳日時欠的，扣掉結帳日之後繳的
+export function cardBill(data, acct, today = ymd()) {
+  if (acct.type !== "card" || !acct.card) return null;
+  const [y, m, d] = today.split("-").map(Number), c = acct.card.close, cur = `${y}-${pad(m)}`;
+  const closeMonth = d >= c ? cur : addMonths(cur, -1);
+  const closeDate = `${closeMonth}-${pad(c)}`;
+  const dueDate = `${acct.card.due > c ? closeMonth : addMonths(closeMonth, 1)}-${pad(acct.card.due)}`;
+  const owed = -acctBalances(data, closeDate)[acct.id];
+  const paid = (data.moves || []).filter((x) => x.to === acct.id && x.date > closeDate).reduce((a, x) => a + x.amt, 0);
+  return { amount: Math.max(0, owed - paid), closeDate, dueDate };
+}
+// 快速設定：郵局＋錢包＋信用卡（已經有的同名帳戶、起始餘額留著）
+export function presetAccounts(data) {
+  const old = (id) => data.accounts.find((a) => a.id === id);
+  const keep = data.accounts.filter((a) => !["bank", "cash", "card"].includes(a.id));
+  const accounts = [{ id: "bank", name: old("bank")?.name || "郵局", type: "bank", open: old("bank")?.open || 0 }, { id: "cash", name: old("cash")?.name || "錢包", type: "cash", open: old("cash")?.open || 0 },
+    { id: "card", name: old("card")?.name || "信用卡", type: "card", open: old("card")?.open || 0, card: old("card")?.card || { close: 5, due: 20, from: "bank" } }, ...keep];
+  const payAcct = {};
+  for (const p of data.pays) payAcct[p] = /現金/.test(p) ? "cash" : /信用卡/.test(p) ? "card" : "bank";
+  return { ...data, accounts, payAcct, prefs: { ...data.prefs, inAcct: "bank", outAcct: "cash" } };
+}
+// 刪帳戶：至少留一個；設定指到它的改到第一個帳戶；紀錄的 acct 拿掉（之後照設定算）；用到它的移動、捷徑一起刪
+export function removeAccount(data, id) {
+  const accounts = data.accounts.filter((a) => a.id !== id);
+  if (!accounts.length || accounts.length === data.accounts.length) return data;
+  const first = accounts[0].id, fix = (v) => (v === id ? first : v);
+  return {
+    ...data, accounts: accounts.map((a) => (a.card?.from === id ? { ...a, card: { ...a.card, from: accounts.find((b) => b.id !== a.id)?.id || "" } } : a)),
+    payAcct: Object.fromEntries(Object.entries(data.payAcct || {}).filter(([, v]) => v !== id)),
+    items: data.items.map((x) => (x.acct === id ? (({ acct, ...r }) => r)(x) : x)),
+    moves: (data.moves || []).filter((m) => m.from !== id && m.to !== id),
+    shortcuts: data.shortcuts.filter((s) => !(s.type === "move" && (s.from === id || s.to === id))),
+    prefs: { ...data.prefs, inAcct: fix(data.prefs.inAcct), outAcct: fix(data.prefs.outAcct) },
+  };
+}
+export const acctName = (data, id) => data.accounts.find((a) => a.id === id)?.name || "?";
+export const moveLabel = (data, m) => `${acctName(data, m.from)} → ${acctName(data, m.to)}`;
+// 連動碼：8 碼（K7P2-9QXA，大小寫、有沒有「-」都可以）、舊的 20 碼，或整條連動連結，都轉成 { url, key }
+export const FRIEND_API = "https://script.google.com/macros/s/AKfycbyqothbLbuXl9Sl44EwpeQ9y_N_VesXPMx_dlaBluNusy4fntcW2h9DobA1KjdggV_pdg/exec";
+export function parseCode(text) {
+  const s = String(text || "").trim();
+  if (s.includes("#link=")) return parseLink(s.slice(s.indexOf("#link=")));
+  const k = s.toUpperCase().replace(/[\s-]/g, "");
+  if (/^[2-9A-HJKMNP-Z]{8}$/.test(k)) return { url: FRIEND_API, key: k };
+  if (/^[0-9a-f]{20}$/i.test(k)) return { url: FRIEND_API, key: k.toLowerCase() };
+  return null;
 }
