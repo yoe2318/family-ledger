@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.3.1";
+const VERSION = "1.3.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -886,6 +886,8 @@ function acctRow() {
   const bal = C.acctBalances(data);
   const bills = data.accounts.map((a) => ({ a, b: C.cardBill(data, a, today()) })).filter((x) => x.b?.amount > 0);
   return `<div class="accts">${data.accounts.map((a) => `<button class="acct" data-recon="${esc(a.id)}" title="點一下對帳"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
+</div>
+    <div class="acct-total"><span>總共 <b class="num">${C.money(Object.values(bal).reduce((x, y) => x + y, 0))}</b><small>（所有帳戶加起來，信用卡欠的已經扣掉）</small></span>
       ${data.accounts.length > 1 ? `<button class="btn acct-mv" data-move>${ico("repeat")}移動</button>` : ""}</div>
     ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}`;
 }
