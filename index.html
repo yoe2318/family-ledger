@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>記帳</title>
+<meta name="description" content="每個人自己的記帳本：資料只存在自己的手機。長按一劃就記好一筆。">
+<meta name="theme-color" content="#F5F4F0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<!-- 加到主畫面後像 App 一樣全螢幕開（Android 讀 manifest；iPhone／iPad 讀下面這幾行） -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="記帳">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+<!-- Chrome／Edge 可以安裝時會發這個事件，可能比 app.js 載完還早：先接住，給「安裝」按鈕用 -->
+<script>addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.ledgerInstall = e; dispatchEvent(new Event("ledger:installable")); });</script>
+</head>
+<body>
+<noscript>這個記帳本需要開啟 JavaScript 才能用。</noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>
