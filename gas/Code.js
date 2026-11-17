@@ -280,7 +280,7 @@ function api_(q) {
 
 // ------------------------------------------------------------------ 在 Apps Script 編輯器裡手動執行的
 // 用「試算表的副本」跑一遍搬家和幾個指令，不碰正式資料。看「執行記錄」。
-function 測試_用副本() {
+function testWithCopy() {   // 用試算表副本測試
   var copy = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty("SHEET_ID")).copy("Line _記帳（測試副本，可刪）");
   ["群組", "成員", "連動", "明細v2"].forEach(function (n) { var s = copy.getSheetByName(n); if (s) copy.deleteSheet(s); });
   TEST = { ss: copy, replies: [], names: { U1: "李宸yo", U2: "劉芳慈" }, counts: { G1: 2 } };
