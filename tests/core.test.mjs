@@ -133,5 +133,16 @@ for (const [id, p] of Object.entries(C.PALETTES)) for (const mode of ["light", "
   }
 }
 
+// 背景：次要文字、每組主題的主色文字在每種背景上都看得清楚
+for (const [id, b] of Object.entries(C.BACKGROUNDS)) for (const mode of ["light", "dark"]) {
+  const r = C.contrast(C.MUTED[mode], b[mode]);
+  eq(`背景 ${b.name} ${mode} 次要文字 ${r.toFixed(2)} ≥ 4.5`, r >= 4.5, true);
+  for (const p of Object.values(C.PALETTES)) { const r2 = C.contrast(p[mode]["accent-ink"], b[mode]); eq(`背景 ${b.name} ${mode} ${p.name}主色文字 ${r2.toFixed(2)} ≥ 4.5`, r2 >= 4.5, true); }
+}
+eq("鍵盤大小範圍", [C.clampKeyH(10), C.clampKeyH(60), C.clampKeyH(200), C.clampKeyH("x")], [36, 60, 76, 52]);
+const cp = C.cleanData({ items: [], prefs: { bg: "sky", pattern: "dots", keyH: 64 } }).prefs;
+eq("偏好：背景、款式、鍵盤大小", [cp.bg, cp.pattern, cp.keyH], ["sky", "dots", 64]);
+eq("偏好：亂填的改回預設", ((p) => [p.bg, p.pattern, p.keyH])(C.cleanData({ items: [], prefs: { bg: "neon", pattern: "zebra", keyH: -3 } }).prefs), ["paper", "grid", 52]);
+
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

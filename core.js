@@ -31,7 +31,7 @@ export function emptyData() {
     v: 1, items: [], cats, pays: [...DEFAULT_PAYS], shortcuts: [],
     wheel: { cats: cats.out.slice(0, 8).map((c) => c.name), pays: [...DEFAULT_PAYS] },
     budget: { total: 0, cats: {} }, recurring: [], debts: [], goals: [],
-    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金" }, lastBackup: 0,
+    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52 }, lastBackup: 0,
   };
 }
 
@@ -300,7 +300,8 @@ export function cleanData(raw) {
   return {
     v: 1, items, cats, pays, shortcuts, wheel: { cats: wheelCats, pays: wheelPays }, budget: { total: Math.max(0, int(raw.budget?.total)), cats: bc }, recurring, debts, goals,
     prefs: { theme: PALETTES[p.theme] ? p.theme : "terracotta", mode: ["auto", "light", "dark"].includes(p.mode) ? p.mode : "auto",
-      monthStart: Math.min(28, Math.max(1, int(p.monthStart) || 1)), lastPay: pays.includes(p.lastPay) ? p.lastPay : pays[0] || "" },
+      monthStart: Math.min(28, Math.max(1, int(p.monthStart) || 1)), lastPay: pays.includes(p.lastPay) ? p.lastPay : pays[0] || "",
+      bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH) },
     lastBackup: Number(raw.lastBackup) || 0,
   };
 }
@@ -346,3 +347,18 @@ export const PALETTES = {
 const lum = (hex) => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
 export const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 export const SURFACE = { light: "#FCFCFA", dark: "#1F1D1A" };
+export const MUTED = { light: "#5E5850", dark: "#A8A196" };          // 次要文字（tokens 的 --muted），背景上要看得清楚
+
+// 背景顏色（淺／深各一）與款式；tests 檢查次要文字、主色文字在背景上對比 ≥ 4.5
+export const BACKGROUNDS = {
+  paper: { name: "米白", light: "#F5F4F0", dark: "#171614" },
+  white: { name: "白", light: "#FBFBFA", dark: "#121212" },
+  sky: { name: "淡藍", light: "#EDF1F5", dark: "#141920" },
+  mint: { name: "淡綠", light: "#EDF3EC", dark: "#141A15" },
+  cream: { name: "奶油黃", light: "#F7F2E3", dark: "#1B1812" },
+  blush: { name: "淡粉", light: "#F7EEEC", dark: "#1D1616" },
+};
+export const PATTERNS = { grid: "方格", lines: "橫線", dots: "點點", plain: "素面" };
+// 數字鍵盤每顆鍵的高度（px）：拖把手調整，範圍 36～76
+export const KEY_H = { min: 36, max: 76, def: 52 };
+export function clampKeyH(v) { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(KEY_H.max, Math.max(KEY_H.min, n)) : KEY_H.def; }

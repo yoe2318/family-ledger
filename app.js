@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.0.0";
+const VERSION = "1.0.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -106,7 +106,10 @@ function applyTheme() {
   if (mode === "auto") root.removeAttribute("data-theme"); else root.dataset.theme = mode;
   const p = (C.PALETTES[theme] || C.PALETTES.terracotta)[dark ? "dark" : "light"];
   for (const [k, v] of Object.entries(p)) root.style.setProperty("--" + k, v);
-  $('meta[name="theme-color"]')?.setAttribute("content", dark ? "#171614" : "#F5F4F0");
+  const bg = (C.BACKGROUNDS[data.prefs.bg] || C.BACKGROUNDS.paper)[dark ? "dark" : "light"];
+  root.style.setProperty("--bg", bg);
+  for (const k of Object.keys(C.PATTERNS)) document.body.classList.toggle("pat-" + k, data.prefs.pattern === k && k !== "grid");
+  $('meta[name="theme-color"]')?.setAttribute("content", bg);
 }
 darkMQ.addEventListener?.("change", applyTheme);
 
@@ -174,9 +177,13 @@ const sure = (title, text, ok = "確定", kind = "primary") => ask(title, text, 
 
 // ================================================================ 數字鍵盤（可以打 120+35）
 const KEYS = ["7", "8", "9", "del", "4", "5", "6", "+", "1", "2", "3", "-", "00", "0", "save"];
+// 鍵盤上面有一條把手：點一下＝收起／打開；按住上下拖＝調大小（記在 prefs.keyH）。收起時只剩「打開鍵盤｜存起來」
 function keypadHTML(label = "存起來") {
-  return `<div class="keys">${KEYS.map((k) => (k === "save" ? `<button class="save" data-k="save">${esc(label)}</button>`
-    : k === "del" ? `<button data-k="del" aria-label="刪一個字">⌫</button>` : `<button data-k="${k}"${/[+-]/.test(k) ? ' class="op"' : ""}>${k === "-" ? "−" : k}</button>`)).join("")}</div>`;
+  return `<div class="kp" style="--kh:${data.prefs.keyH}px">
+    <button class="kp-grip" data-kgrip title="點一下收起鍵盤；按住上下拖可以調整大小" aria-label="收起或打開數字鍵盤（按住上下拖可以調整大小）"><i></i></button>
+    <div class="keys">${KEYS.map((k) => (k === "save" ? `<button class="save" data-k="save">${esc(label)}</button>`
+      : k === "del" ? `<button data-k="del" aria-label="刪一個字">⌫</button>` : `<button data-k="${k}"${/[+-]/.test(k) ? ' class="op"' : ""}>${k === "-" ? "−" : k}</button>`)).join("")}</div>
+    <div class="kp-mini"><button class="btn" data-kshow>${ico("chevron-right", "ico up")}打開鍵盤</button><button class="save" data-k="save">${esc(label)}</button></div></div>`;
 }
 function amountHTML(expr) {
   const v = C.evalAmount(expr), hasOp = /\d[+-]/.test(expr);
@@ -192,15 +199,55 @@ function pressKey(expr, k) {
 // 綁定鍵盤：st.expr 存目前的算式；onSave(金額)。面板重畫後再呼叫一次就好（事件只綁一次，不會按一下輸入兩次）
 function bindKeypad(el, st, onSave) {
   el._kp = { st, onSave };
+  const kp = () => el.querySelector(".kp");
   const upd = () => {
-    const disp = el.querySelector(".amt-disp"), btn = el.querySelector('[data-k="save"]'), ex = el._kp.st.expr;
+    const disp = el.querySelector(".amt-disp"), ex = el._kp.st.expr;
     if (disp) disp.innerHTML = amountHTML(ex);
-    if (btn) btn.disabled = !C.evalAmount(ex);
+    el.querySelectorAll('[data-k="save"]').forEach((b) => { b.disabled = !C.evalAmount(ex); });
+    kp()?.classList.toggle("collapsed", !!el._kpHidden);        // 面板重畫後照舊收著／打開
   };
   upd();
   if (el._kpBound) return;
   el._kpBound = true;
+  const setHidden = (h) => { el._kpHidden = h; kp()?.classList.toggle("collapsed", h); };
+  // 把手：拖＝調大小，點＝收起／打開
+  el.addEventListener("pointerdown", (e) => {
+    const g = e.target.closest("[data-kgrip]");
+    if (!g) return;
+    e.preventDefault();
+    try { g.setPointerCapture(e.pointerId); } catch { /* 拿不到也沒關係 */ }
+    const y0 = e.clientY, h0 = data.prefs.keyH, box = kp();
+    let moved = false, h = h0;
+    const move = (ev) => {
+      const dy = ev.clientY - y0;
+      if (Math.abs(dy) > 6) moved = true;
+      if (!moved || el._kpHidden) return;
+      h = C.clampKeyH(h0 - dy / 4);                             // 4 排鍵：手指移 4px，每顆鍵變 1px
+      box.style.setProperty("--kh", h + "px");
+    };
+    const up = (ev) => {
+      g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up);
+      if (!moved) return setHidden(!el._kpHidden);
+      if (el._kpHidden) { if (ev.clientY < y0 - 20) setHidden(false); return; }   // 收著時往上拉＝打開
+      if (ev.clientY - y0 > 60 && h === C.KEY_H.min) return setHidden(true);   // 已經最小還往下拉＝收起
+      if (h !== data.prefs.keyH) commit({ ...data, prefs: { ...data.prefs, keyH: h } }, { quiet: true });
+    };
+    g.addEventListener("pointermove", move); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
+  });
+  // 點備註、日期打字時：鍵盤先收起來（讓手機的鍵盤出來、也不會蓋住欄位），離開再打開
+  el.addEventListener("focusin", (e) => {
+    if (!e.target.matches("input:not([type=checkbox]), textarea, select") || el._kpHidden) return;
+    el._kpAuto = true; setHidden(true);
+  });
+  el.addEventListener("focusout", (e) => {
+    if (!el._kpAuto || !e.target.matches("input, textarea, select")) return;
+    setTimeout(() => {                                          // 換到同一個面板的另一個輸入欄：繼續收著
+      const a = document.activeElement, stillTyping = a && el.contains(a) && a.matches("input:not([type=checkbox]), textarea, select");
+      if (el._kpAuto && !stillTyping) { el._kpAuto = false; setHidden(false); }
+    }, 120);
+  });
   el.addEventListener("click", (e) => {
+    if (e.target.closest("[data-kshow], .amt-disp")) { el._kpAuto = false; setHidden(false); return; }
     const k = e.target.closest("[data-k]")?.dataset.k;
     if (!k) return;
     const { st: s, onSave: save } = el._kp;
@@ -516,7 +563,7 @@ const MORE = [
   ["pays", "credit-card", "付款方式", () => data.pays.join("、")],
   ["shortcuts", "zap", "常用捷徑", () => (data.shortcuts.length ? `${data.shortcuts.length} 個` : "首頁一點就記一筆")],
   ["wheel", "wheel", "扇形選單", () => "長按 ＋ 時出現的分類和付款方式"],
-  ["theme", "palette", "主題顏色", () => `${C.PALETTES[data.prefs.theme]?.name}・${{ auto: "跟著手機", light: "淺色", dark: "深色" }[data.prefs.mode]}`],
+  ["theme", "palette", "外觀", () => `${C.PALETTES[data.prefs.theme]?.name}・${C.BACKGROUNDS[data.prefs.bg]?.name}${C.PATTERNS[data.prefs.pattern]}・${{ auto: "跟著手機", light: "淺色", dark: "深色" }[data.prefs.mode]}`],
   ["start", "calendar", "每月起算日", () => (data.prefs.monthStart === 1 ? "每月 1 號" : `每月 ${data.prefs.monthStart} 號（例如發薪日）`)],
   ["backup", "download", "備份與還原", () => (data.lastBackup ? `上次備份 ${C.ymd(new Date(data.lastBackup))}` : "還沒備份過")],
   ["install", "smartphone", "安裝到主畫面", () => "像 App 一樣從桌面打開"],
@@ -777,10 +824,20 @@ function pgWheel() {
 
 // ---- 主題
 function pgTheme() {
-  return `${subHead("主題顏色")}<div class="sec-h"><span>主色</span></div>
-    <div class="swatches">${Object.entries(C.PALETTES).map(([id, p]) => `<button data-theme="${id}" class="${id === data.prefs.theme ? "on" : ""}"><i style="background:${p.light.accent}"></i>${esc(p.name)}</button>`).join("")}</div>
+  const dark = data.prefs.mode === "dark" || (data.prefs.mode === "auto" && darkMQ.matches), m = dark ? "dark" : "light";
+  const curBg = (C.BACKGROUNDS[data.prefs.bg] || C.BACKGROUNDS.paper)[m];
+  return `${subHead("外觀")}<p class="small muted">每個人可以選自己喜歡的樣子，只會改這台裝置。</p>
+    <div class="sec-h"><span>主色（按鈕、重點數字）</span></div>
+    <div class="swatches">${Object.entries(C.PALETTES).map(([id, p]) => `<button data-theme="${id}" class="${id === data.prefs.theme ? "on" : ""}"><i style="background:${p[m].accent}"></i>${esc(p.name)}</button>`).join("")}</div>
+    <div class="sec-h"><span>背景顏色</span></div>
+    <div class="bg-tiles">${Object.entries(C.BACKGROUNDS).map(([id, b]) => `<button data-bg="${id}" class="${id === data.prefs.bg ? "on" : ""}"><i style="background:${b[m]}"></i>${esc(b.name)}</button>`).join("")}</div>
+    <div class="sec-h"><span>背景款式</span></div>
+    <div class="bg-tiles">${Object.entries(C.PATTERNS).map(([id, name]) => `<button data-pattern="${id}" class="${id === data.prefs.pattern ? "on" : ""}"><i class="pv-${id}" style="background-color:${curBg}"></i>${esc(name)}</button>`).join("")}</div>
     <div class="sec-h"><span>深淺色</span></div>
-    <div class="seg">${[["auto", "跟著手機"], ["light", "淺色"], ["dark", "深色"]].map(([v, t]) => `<button data-mode="${v}" class="${v === data.prefs.mode ? "on" : ""}">${t}</button>`).join("")}</div>`;
+    <div class="seg">${[["auto", "跟著手機"], ["light", "淺色"], ["dark", "深色"]].map(([v, t]) => `<button data-mode="${v}" class="${v === data.prefs.mode ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="sec-h"><span>數字鍵盤大小</span></div>
+    <p class="small muted" style="margin:0">記帳時按住鍵盤上面的小把手上下拖就能調大小，點一下把手可以收起鍵盤。現在每顆鍵 <b class="num">${data.prefs.keyH}</b> px。</p>
+    <div class="row-btns"><button class="btn" data-keyh="-6">小一點</button><button class="btn" data-keyh="6">大一點</button><button class="btn text" data-keyh="0">恢復預設</button></div>`;
 }
 
 // ---- 每月起算日
@@ -914,7 +971,10 @@ async function onClick(e) {
   if (d.prename) { const v = await ask("改名", "", [["no", "取消"], ["ok", "存起來", "primary"]], d.prename); if (v) commit(C.renamePay(data, d.prename, v)); return; }
   if (d.pdel) { if (await sure(`刪除「${d.pdel}」？`, "以前用它記的紀錄會照舊寫著。", "刪除", "danger")) commit(C.removePay(data, d.pdel)); return; }
   if (d.theme) { commit({ ...data, prefs: { ...data.prefs, theme: d.theme } }); return applyTheme(); }
-  if (d.mode) { commit({ ...data, prefs: { ...data.prefs, mode: d.mode } }); return applyTheme(); }
+  if (d.mode) { commit({ ...data, prefs: { ...data.prefs, mode: d.mode } }); applyTheme(); return render(); }
+  if (d.bg) { commit({ ...data, prefs: { ...data.prefs, bg: d.bg } }); return applyTheme(); }
+  if (d.pattern) { commit({ ...data, prefs: { ...data.prefs, pattern: d.pattern } }); return applyTheme(); }
+  if (d.keyh !== undefined) { const v = +d.keyh ? C.clampKeyH(data.prefs.keyH + +d.keyh) : C.KEY_H.def; return commit({ ...data, prefs: { ...data.prefs, keyH: v } }); }
   if (d.export !== undefined) return exportBackup();
   if (d.import !== undefined) return $("#imp").click();
   if (d.csv !== undefined) { const ok = await download(`記帳-${today().replace(/-/g, "")}.csv`, C.toCSV(data.items), "text/csv"); if (ok) toast("CSV 匯出了，可以用 Excel 或 Google 試算表打開"); return; }
