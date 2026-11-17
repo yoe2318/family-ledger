@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.0.2";
+const VERSION = "1.0.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -284,13 +284,13 @@ function openForm(item = null, preset = {}) {
         <div class="amt-disp"></div>
         <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}</div>
         ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === f.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
-        <div class="field"><span class="lab">付款方式</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>
+        ${f.type === "out" ? `<div class="field"><span class="lab">付款方式</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
         <div class="field"><label for="f-date">日期</label><input id="f-date" type="date" value="${esc(f.date)}" max="2100-12-31"></div>
         <div class="field"><label for="f-note">備註</label><input id="f-note" value="${esc(f.note)}" maxlength="200" placeholder="例如：全聯、和朋友聚餐"></div>
         ${item ? "" : `<label class="check"><input type="checkbox" data-sc${makeShortcut ? " checked" : ""}> 存成常用捷徑（首頁一點就能再記一次）</label>`}
         ${keypadHTML()}`;
       bindKeypad(el, f, (amt) => {
-        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.pay, date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}) };
+        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}) };
         s.close();
         if (item) { commit({ ...data, items: data.items.map((x) => (x.id === item.id ? rec : x)) }); toast("改好了"); return; }
         if (makeShortcut) data = { ...data, shortcuts: [...data.shortcuts, { id: C.newId(), label: "", type: rec.type, cat: rec.cat, sub: rec.sub, pay: rec.pay, amt, note: rec.note }] };
@@ -456,7 +456,7 @@ function periodNav(extra = "") {
     <button class="icon-btn" data-per="1" aria-label="下一期"${ui.period >= cur ? " disabled" : ""}>${ico("chevron-right")}</button>${extra}</header>`;
 }
 function itemRow(x) {
-  const meta = [x.sub ? x.cat : "", x.pay, x.note].filter(Boolean).join("・");
+  const meta = [x.sub ? x.cat : "", x.type === "out" ? x.pay : "", x.note].filter(Boolean).join("・");
   return `<button class="item" data-item="${esc(x.id)}"><span class="cat-ico">${ico(catIcon(x.type, x.cat))}</span>
     <span style="min-width:0"><div class="name">${esc(x.sub || x.cat)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}</span>
     <span class="amt ${x.type}">${x.type === "in" ? "+" : "−"}${C.money(x.amt)}</span></button>`;
@@ -716,7 +716,7 @@ function ruleForm(kind, r = null) {
         <div class="field"><label for="r-amt">金額</label><input id="r-amt" inputmode="numeric" value="${esc(f.amt)}" placeholder="${isRec ? "" : "選填：空白＝每次再打"}"></div>
         <div class="field"><label for="r-cat">分類</label>${selectHTML("r-cat", data.cats[f.type].map((c) => c.name), f.cat)}</div>
         ${subs.length ? `<div class="field"><label for="r-sub">細項</label>${selectHTML("r-sub", subs, f.sub, "（不選）")}</div>` : ""}
-        <div class="field"><label for="r-pay">付款方式</label>${selectHTML("r-pay", data.pays, f.pay, "（不寫）")}</div>
+        ${f.type === "out" ? `<div class="field"><label for="r-pay">付款方式</label>${selectHTML("r-pay", data.pays, f.pay, "（不寫）")}</div>` : ""}
         ${isRec ? `<div class="field"><label for="r-day">每月幾號</label>${selectHTML("r-day", Array.from({ length: 28 }, (_, i) => String(i + 1)), String(f.day))}</div>
           <div class="field"><label for="r-from">從哪個月</label><input id="r-from" type="month" value="${esc(f.from)}"></div>` : ""}
         <div class="field"><label for="r-note">備註</label><input id="r-note" value="${esc(f.note)}" maxlength="200" placeholder="${isRec ? "例如：中華電信" : ""}"></div>
@@ -734,7 +734,7 @@ function ruleForm(kind, r = null) {
       const t = e.target.closest("button");
       if (!t) return;
       if (t.dataset.close !== undefined) return s.close();
-      if (t.dataset.type) { if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; draw(); } return; }
+      if (t.dataset.type) { if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; if (f.type === "in") f.pay = ""; draw(); } return; }
       const list = isRec ? "recurring" : "shortcuts";
       if (t.dataset.rdel !== undefined) {
         if (!(await sure(isRec ? "刪除這筆固定收支？" : "刪除這個捷徑？", isRec ? "以前自動記的紀錄會留著。" : "", "刪除", "danger"))) return;
