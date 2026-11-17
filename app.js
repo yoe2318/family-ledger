@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1304,7 +1304,16 @@ function start() {
   else if (data.prefs.friend) syncFriends({ quiet: true });
   try { navigator.storage?.persist?.(); } catch { /* 不支援 */ }
   addEventListener("ledger:installable", () => { if (ui.more === "install") render(); });
-  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    // 有新版：新的 sw 接手時自動重新整理一次（沒有在記帳的話），重開 App 一次就是新版
+    const hadSW = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadSW || reloaded || sheets.length) return;
+      reloaded = true; location.reload();
+    });
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+  }
   // 隔天打開沒有重新整理：回到 App 時換成今天這一期、補記固定收支
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
