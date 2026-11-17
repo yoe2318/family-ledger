@@ -269,3 +269,16 @@ body.pat-plain { background-image: none; }
 
 @media (prefers-reduced-motion: reduce) { .sheet { animation: none; } * { transition: none !important; } }
 @media print { body { background-image: none; } .bottom, .top .icon-btn { display: none; } }
+
+/* 朋友分帳 */
+.fbal { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fb { font-size: 15px; padding: 2px 0; }
+.fbal .fb { font-size: 18px; }
+.fbal .fb.small { font-size: var(--fs-small); }
+.fb.pos { color: var(--ok); }
+.menu-row .t .fb { font-size: var(--fs-small); color: var(--muted); }
+.menu-row .t .fb.pos { color: var(--ok); }
+.fstat { margin: 8px 0 0; }
+.steps { padding-left: 20px; margin: 8px 0 16px; }
+.steps li { margin: 4px 0; }
+button.list-row { width: 100%; border: 0; border-bottom: 1px solid var(--line-2); background: none; text-align: left; color: inherit; font: inherit; }

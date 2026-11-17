@@ -301,8 +301,11 @@ export function cleanData(raw) {
     v: 1, items, cats, pays, shortcuts, wheel: { cats: wheelCats, pays: wheelPays }, budget: { total: Math.max(0, int(raw.budget?.total)), cats: bc }, recurring, debts, goals,
     prefs: { theme: PALETTES[p.theme] ? p.theme : "terracotta", mode: ["auto", "light", "dark"].includes(p.mode) ? p.mode : "auto",
       monthStart: Math.min(28, Math.max(1, int(p.monthStart) || 1)), lastPay: pays.includes(p.lastPay) ? p.lastPay : pays[0] || "",
-      bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH) },
+      bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH),
+      ...(p.friend && parseLink("#link=" + encodeURIComponent(String(p.friend.url || "")) + "~" + String(p.friend.key || "")) ? { friend: { url: String(p.friend.url), key: String(p.friend.key), auto: p.friend.auto !== false } } : {}) },
     lastBackup: Number(raw.lastBackup) || 0,
+    ...(cleanFriends(raw.friends) ? { friends: cleanFriends(raw.friends) } : {}),
+    ...(Array.isArray(raw.friendQ) ? { friendQ: raw.friendQ.filter((q) => q && (q.op === "add" || q.op === "del")).slice(0, 200) } : {}),
   };
 }
 // 還原備份時「合併」：同一個 id 以備份為準，其他都留著；分類、付款方式取聯集
@@ -362,3 +365,80 @@ export const PATTERNS = { grid: "方格", lines: "橫線", dots: "點點", plain
 // 數字鍵盤每顆鍵的高度（px）：拖把手調整，範圍 36～76
 export const KEY_H = { min: 36, max: 76, def: 52 };
 export function clampKeyH(v) { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(KEY_H.max, Math.max(KEY_H.min, n)) : KEY_H.def; }
+
+// ---------------------------------------------------------------- 朋友分帳（LINE 記帳群組連動；算法和 gas/logic.js 一樣）
+// 一筆朋友帳 entry：{ id, t, g, item, amt, payer, to:[uid], kind:"exp"|"pay", by, src, del }
+//   exp：payer 先付，to 裡的人平分（零頭給 payer，payer 不在 to 就給第一個）；pay：payer 還 to[0] 錢。
+export function parseLink(hash) {
+  const m = /#link=([^~&]+)~([A-Za-z0-9]{8,64})/.exec(hash || "");
+  if (!m) return null;
+  let url; try { url = decodeURIComponent(m[1]); } catch { return null; }
+  return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url) ? { url, key: m[2] } : null;
+}
+export function splitShares(amt, to, payer) {
+  const out = {}, n = to.length;
+  if (!n) return out;
+  const base = Math.floor(amt / n);
+  for (const u of to) out[u] = (out[u] || 0) + base;
+  out[to.includes(payer) ? payer : to[0]] += amt - base * n;
+  return out;
+}
+// 兩兩淨額 [{ from, to, amt }]（from 欠 to）
+export function friendBalances(entries) {
+  const net = {};
+  for (const e of entries) {
+    if (e.del) continue;
+    for (const [u, v] of Object.entries(splitShares(e.amt, e.to, e.payer))) {
+      if (u === e.payer || !v) continue;
+      const [a, b] = u < e.payer ? [u, e.payer] : [e.payer, u];
+      net[a + "|" + b] = (net[a + "|" + b] || 0) + (u === a ? v : -v);
+    }
+  }
+  return Object.keys(net).sort().flatMap((k) => { const [a, b] = k.split("|"), v = net[k]; return v > 0 ? [{ from: a, to: b, amt: v }] : v < 0 ? [{ from: b, to: a, amt: -v }] : []; });
+}
+// 我在這筆帳裡自己花掉的錢（算進我的支出）；還款不算
+export const friendShare = (e, uid) => (e.del || e.kind !== "exp" || !e.to.includes(uid) ? 0 : splitShares(e.amt, e.to, e.payer)[uid] || 0);
+
+// 照項目名稱猜分類：只用帳本裡有的分類，猜不到就「其他」
+const GUESS = [
+  [/早餐|早午餐/, "餐飲", "早餐"], [/午餐|中餐|便當/, "餐飲", "午餐"], [/晚餐|宵夜|晚飯/, "餐飲", "晚餐"],
+  [/飲料|咖啡|奶茶|鮮奶|紅茶|綠茶|果汁|手搖/, "餐飲", "飲料"], [/車票|車錢|捷運|公車|高鐵|火車|計程車|uber|油錢|停車/i, "交通", ""], 
+  [/餐|吃|飯|麵|火鍋|滷味|小籠包|麥味登|點心|零食|雞排|壽司|披薩|漢堡/, "餐飲", ""], [/藥|看病|診所|醫/, "醫療", ""],
+  [/電影|娃娃|遊戲|唱歌|ktv/i, "娛樂", ""], [/口紅|衣|鞋|保護殼|包包|禮物/, "購物", ""], [/顏料|書|文具|講義/, "教育", ""],
+];
+export function guessCat(item, cats) {
+  const has = (n) => cats.out.some((c) => c.name === n);
+  for (const [re, cat, sub] of GUESS) {
+    if (!re.test(item) || !has(cat)) continue;
+    const subs = cats.out.find((c) => c.name === cat).subs;
+    return { cat, sub: sub && subs.includes(sub) ? sub : "" };
+  }
+  return { cat: has("其他") ? "其他" : cats.out[0]?.name || "其他", sub: "" };
+}
+// 同步後：把「我的那份」變成支出紀錄（id = "fr-" + entry.id）。已經有的只更新金額、日期，分類保留（可能被我改過）；
+// 帳被刪掉、或不再有我的份 → 拿掉對應紀錄。
+export function friendItems(items, sync, cats) {
+  const me = sync.me, want = new Map();
+  for (const e of sync.entries || []) { const v = friendShare(e, me); if (v > 0) want.set("fr-" + e.id, { e, v }); }
+  const out = [], seen = new Set();
+  for (const x of items) {
+    if (!x.id.startsWith("fr-")) { out.push(x); continue; }
+    const w = want.get(x.id);
+    if (!w) continue;
+    seen.add(x.id);
+    out.push({ ...x, amt: w.v, date: ymd(new Date(w.e.t)) });
+  }
+  const added = [...want].filter(([id]) => !seen.has(id)).map(([id, { e, v }]) => ({ id, type: "out", amt: v, ...guessCat(e.item, cats), pay: "", date: ymd(new Date(e.t)), note: "朋友帳・" + e.item, t: e.t }));
+  return { items: [...out, ...added], added: added.length, removed: items.length - out.length };
+}
+export function cleanFriends(raw) {
+  if (!raw || typeof raw !== "object" || typeof raw.me !== "string") return null;
+  const s = (v, n) => String(v ?? "").slice(0, n);
+  return {
+    me: s(raw.me, 80), at: Number(raw.at) || 0,
+    groups: (Array.isArray(raw.groups) ? raw.groups : []).map((g) => ({ id: s(g?.id, 80), name: s(g?.name, 40) })).filter((g) => g.id),
+    members: (Array.isArray(raw.members) ? raw.members : []).map((m) => ({ uid: s(m?.uid, 80), g: s(m?.g, 80), name: s(m?.name, 40) })).filter((m) => m.uid && m.g),
+    entries: (Array.isArray(raw.entries) ? raw.entries : []).filter((e) => e && Number(e.amt) > 0 && Array.isArray(e.to) && (e.kind === "exp" || e.kind === "pay"))
+      .map((e) => ({ id: s(e.id, 60), t: Number(e.t) || 0, g: s(e.g, 80), item: s(e.item, 40), amt: Math.round(Number(e.amt)), payer: s(e.payer, 80), to: e.to.map((u) => s(u, 80)), kind: e.kind, by: s(e.by, 80), src: s(e.src, 8), del: !!e.del, ...(e.pending ? { pending: true } : {}) })),
+  };
+}

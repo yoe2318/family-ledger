@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.0.3";
+const VERSION = "1.1.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -33,6 +33,7 @@ const ICONS = {
   zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   handshake: '<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/>',
   "piggy-bank": '<path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z"/><path d="M2 9v1c0 1.1.9 2 2 2h1"/><path d="M16 11h.01"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
   // 分類圖示
   utensils: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
@@ -114,18 +115,18 @@ function applyTheme() {
 darkMQ.addEventListener?.("change", applyTheme);
 
 // ================================================================ 畫面狀態、上一頁
-const ui = { tab: "home", period: "", search: null, statType: "out", openCat: null, calMonth: "", calDay: "", more: null, catType: "out" };
+const ui = { tab: "home", period: "", search: null, statType: "out", openCat: null, calMonth: "", calDay: "", more: null, catType: "out", fg: null };
 const sheets = [];
 let skipPop = 0;
 window.addEventListener("popstate", (e) => {
   if (skipPop) { skipPop--; return; }
   if (sheets.length) { sheets.pop().close(true); return; }
   const s = e.state || {};
-  ui.tab = s.tab || "home"; ui.more = s.more || null; ui.search = null;
+  ui.tab = s.tab || "home"; ui.more = s.more || null; ui.fg = s.fg || null; ui.search = null;
   render();
 });
 function go(tab, more = null) {
-  ui.tab = tab; ui.more = more; ui.search = null; ui.openCat = null;
+  ui.tab = tab; ui.more = more; ui.search = null; ui.openCat = null; ui.fg = null;
   history.pushState({ tab, more }, "");
   render(); window.scrollTo(0, 0);
 }
@@ -568,17 +569,169 @@ const MORE = [
   ["backup", "download", "備份與還原", () => (data.lastBackup ? `上次備份 ${C.ymd(new Date(data.lastBackup))}` : "還沒備份過")],
   ["install", "smartphone", "安裝到主畫面", () => "像 App 一樣從桌面打開"],
 ];
+const FRIENDS_ROW = ["friends", "users", "朋友分帳", () => {
+  const me = fr().me, b = fr().groups.flatMap((g) => C.friendBalances(fr().entries.filter((e) => e.g === g.id)));
+  const owed = b.filter((x) => x.to === me).reduce((a, x) => a + x.amt, 0), owe = b.filter((x) => x.from === me).reduce((a, x) => a + x.amt, 0);
+  return fr().at ? `別人欠我 ${C.money(owed)}・我欠別人 ${C.money(owe)}` : "和 LINE 記帳群組連動";
+}];
 const subHead = (title, extra = "") => `<header class="top"><button class="icon-btn" data-back aria-label="回上一頁">${ico("chevron-left")}</button><h1 class="left">${esc(title)}</h1>${extra}</header>`;
 function renderMore() {
-  const page = { debts: pgDebts, goals: pgGoals, budget: pgBudget, recurring: pgRecurring, cats: pgCats, pays: pgPays, shortcuts: pgShortcuts, wheel: pgWheel, theme: pgTheme, start: pgStart, backup: pgBackup, install: pgInstall, clear: pgClear }[ui.more];
+  const page = { friends: pgFriends, debts: pgDebts, goals: pgGoals, budget: pgBudget, recurring: pgRecurring, cats: pgCats, pays: pgPays, shortcuts: pgShortcuts, wheel: pgWheel, theme: pgTheme, start: pgStart, backup: pgBackup, install: pgInstall, clear: pgClear }[ui.more];
   if (page) return page();
   return `<header class="top"><h1 class="left">更多</h1></header>
-    ${MORE.slice(0, 2).map(menuRow).join("")}<div class="sec-h"><span>設定</span></div>${MORE.slice(2).map(menuRow).join("")}
+    ${[...(data.prefs.friend ? [FRIENDS_ROW] : []), ...MORE.slice(0, 2)].map(menuRow).join("")}<div class="sec-h"><span>設定</span></div>${MORE.slice(2).map(menuRow).join("")}
     <button class="menu-row" data-goto="clear" style="color:var(--bad)">${ico("trash")}<span class="t">清除全部資料</span></button>
     <p class="foot">帳只存在這台裝置，不會上傳到任何地方；每個人的手機是各自的帳本。記得偶爾「匯出備份」。版本 ${VERSION}</p>`;
 }
 function menuRow([id, icon, title, sub]) {
   return `<button class="menu-row" data-goto="${id}">${ico(icon)}<span class="t">${esc(title)}<small>${esc(sub())}</small></span><span class="chev">${ico("chevron-right")}</span></button>`;
+}
+
+// ---- 朋友分帳（和 LINE 記帳群組連動；只有拿到連動碼的人才有，家人的帳本不受影響）
+const fst = { busy: false, err: "", lastTry: 0 };
+const fr = () => data.friends || { me: "", at: 0, groups: [], members: [], entries: [] };
+const fname = (uid, g) => (uid === fr().me ? "我" : fr().members.find((m) => m.uid === uid && (!g || m.g === g))?.name || fr().members.find((m) => m.uid === uid)?.name || "某人");
+async function friendApi(body) {
+  const f = data.prefs.friend, ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 30000);
+  try {
+    const r = await fetch(f.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ key: f.key, ...body }), signal: ctl.signal });
+    return await r.json();
+  } finally { clearTimeout(tm); }
+}
+// 先把還沒上傳的送出去，再拿最新的帳；成功就把「我的那份」補進支出
+async function syncFriends({ quiet = false } = {}) {
+  if (!data.prefs.friend || fst.busy) return;
+  fst.busy = true; fst.err = ""; fst.lastTry = Date.now();
+  if (ui.more === "friends") render();
+  let res = null;
+  try {
+    for (const q of [...(data.friendQ || [])]) {
+      const r = await friendApi(q);
+      if (!r.ok && r.err === "key") throw new Error("key");
+      data = { ...data, friendQ: (data.friendQ || []).filter((x) => x !== q) };   // 伺服器拒絕的（例如不能刪別人的）也拿掉，才不會一直卡住
+      save();
+      if (!r.ok) toast("有一筆沒記成功：" + r.err);
+      else res = r;
+    }
+    if (!res) res = await friendApi({ op: "sync" });
+    if (!res.ok) throw new Error(res.err || "sync");
+    const clean = C.cleanFriends(res);
+    let next = { ...data, friends: clean };
+    if (data.prefs.friend.auto) {
+      const r = C.friendItems(data.items, clean, data.cats);
+      next = { ...next, items: r.items };
+      if ((r.added || r.removed) && !quiet) toast(`朋友帳：${r.added ? `我的那份補進支出 ${r.added} 筆` : ""}${r.added && r.removed ? "、" : ""}${r.removed ? `拿掉 ${r.removed} 筆` : ""}`);
+    }
+    commit(next, { quiet: true });
+  } catch (e) {
+    fst.err = e.message === "key" ? "連動碼失效了：請私訊 LINE 記帳機器人「連動碼」，點新的連結。" : "現在連不上，先顯示上次的資料；在這裡記的帳會等連上再送。";
+  } finally { fst.busy = false; if (!(ui.tab === "home" && ui.search !== null)) render(); }
+}
+function queueFriend(q, entry) {
+  const f = fr();
+  commit({ ...data, friendQ: [...(data.friendQ || []), q],
+    friends: entry ? { ...f, entries: [...f.entries, { ...entry, pending: true }] } : { ...f, entries: f.entries.map((e) => (e.id === q.id ? { ...e, del: true, pending: true } : e)) } });
+  syncFriends();
+}
+async function linkFriend(link) {
+  if (!link) return toast("這不是連動連結：請私訊 LINE 記帳機器人「連動碼」，用它給的連結");
+  if (!(await sure("連上 LINE 朋友帳？", "連上後，這台手機看得到你有參加的 LINE 記帳群組，也能在這裡記帳；你分到的那份會自動算進支出。", "連上"))) return;
+  const { friends, friendQ, ...rest } = data;
+  commit({ ...rest, prefs: { ...data.prefs, friend: { ...link, auto: true } } }, { quiet: true });
+  ui.fg = null;
+  go("more", "friends");
+  await syncFriends();
+}
+function balLines(gid, onlyMe = false) {
+  const me = fr().me, b = C.friendBalances(fr().entries.filter((e) => e.g === gid));
+  if (!b.length) return `<div class="fb muted">沒有人欠錢</div>`;
+  const mine = b.filter((x) => x.from === me || x.to === me), rest = b.filter((x) => x.from !== me && x.to !== me);
+  const line = (x) => (x.to === me ? `<div class="fb pos">${esc(fname(x.from, gid))} 欠我 ${N(x.amt)}</div>`
+    : x.from === me ? `<div class="fb">我欠 ${esc(fname(x.to, gid))} ${N(x.amt)}</div>`
+    : `<div class="fb small muted">${esc(fname(x.from, gid))} 欠 ${esc(fname(x.to, gid))} ${N(x.amt)}</div>`);
+  return mine.map(line).join("") + (onlyMe ? "" : rest.map(line).join("")) || `<div class="fb muted">你沒有欠人，別人也沒欠你</div>`;
+}
+function describeF(e) {
+  if (e.kind === "pay") return `${fname(e.payer, e.g)} 還 ${fname(e.to[0], e.g)}`;
+  if (e.to.length === 1) return `${fname(e.to[0], e.g)} 欠 ${fname(e.payer, e.g)}`;
+  return `${fname(e.payer, e.g)} 付，${e.to.length} 人平分`;
+}
+const mmdd = (t) => C.ymd(new Date(t)).slice(5).replace("-", "/");
+function pgFriends() {
+  const f = data.prefs.friend;
+  if (!f) return `${subHead("朋友分帳")}
+    <p>和 LINE 的記帳群組連在一起：在 LINE 打「午餐 120」記的帳，這裡看得到；在這裡記的，也會進同一本帳。</p>
+    <ol class="steps"><li>在 LINE 私訊記帳機器人「連動碼」。</li><li>用這支手機點它回的連結。</li><li>iPhone 從主畫面打開 App 的話：連結會開在 Safari，請長按連結「拷貝」，回到 App 按下面的「貼上連動連結」。</li></ol>
+    <div class="row-btns"><button class="btn primary grow" data-fpaste>貼上連動連結</button></div>
+    <p class="small muted">只看得到你有參加的群組；沒連動的人（例如家人）完全看不到。</p>`;
+  const F = fr(), g = ui.fg && F.groups.find((x) => x.id === ui.fg), q = (data.friendQ || []).length;
+  const status = `<p class="small muted fstat">${fst.busy ? "同步中…" : F.at ? `上次同步 ${mmdd(F.at)} ${new Date(F.at).toTimeString().slice(0, 5)}` : "還沒同步"}${q ? `・${q} 筆等著上傳` : ""}</p>
+    ${fst.err ? `<div class="note warn">${ico("alert")}<span>${esc(fst.err)}</span></div>` : ""}`;
+  const syncBtn = `<button class="icon-btn" data-fsync aria-label="同步"${fst.busy ? " disabled" : ""}>${ico("rotate-ccw")}</button>`;
+  if (g) {
+    const list = F.entries.filter((e) => e.g === g.id && !e.del).sort((a, b) => b.t - a.t);
+    return `${subHead(g.name, syncBtn)}${status}
+      <div class="fbal">${balLines(g.id)}</div>
+      <div class="row-btns"><button class="btn primary grow" data-fadd>${ico("plus")}記一筆</button><button class="btn grow" data-frepay>記還款</button></div>
+      <div class="sec-h"><span>明細（${list.length} 筆）</span><span>${esc(F.members.filter((m) => m.g === g.id).map((m) => fname(m.uid, g.id)).join("、"))}</span></div>
+      ${list.map((e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
+        <span class="num${e.kind === "pay" ? " muted" : ""}">${C.money(e.amt)}</span></button>`).join("") || `<div class="empty">這個群組還沒有帳。</div>`}`;
+  }
+  return `${subHead("朋友分帳", syncBtn)}${status}
+    ${F.groups.map((x) => `<button class="menu-row" data-fg="${esc(x.id)}" style="align-items:flex-start"><span class="t"><b>${esc(x.name)}</b>${balLines(x.id, true)}</span><span class="chev">${ico("chevron-right")}</span></button>`).join("")
+      || (F.at ? `<div class="empty">你還沒在任何記帳群組裡說過話。<br>到 LINE 群組打一句「查詢」，再回來同步。</div>` : "")}
+    <div class="sec-h"><span>設定</span></div>
+    <label class="check"><input type="checkbox" id="f-auto"${f.auto ? " checked" : ""}> 我分到的那份自動算進我的支出（備註寫「朋友帳」）</label>
+    <div class="row-btns"><button class="btn danger" data-funlink>解除連動</button></div>
+    <p class="small muted">LINE 群組裡打「說明」看所有指令。想和另一群朋友分帳：開一個 LINE 群組、把記帳機器人邀進去，就是一本新的分帳本。</p>`;
+}
+function friendForm(kind) {
+  const F = fr(), gid = ui.fg, me = F.me, mem = F.members.filter((m) => m.g === gid), others = mem.filter((m) => m.uid !== me);
+  if (!others.length) return toast("群組裡的其他人還沒在 LINE 說過話，等他們打一句「查詢」再記");
+  const st = { mode: kind === "pay" ? "iPay" : "iOwe", who: others[0].uid, payer: me, to: mem.map((m) => m.uid), item: "", expr: "" };
+  openSheet((el, s) => {
+    const draw = () => {
+      const opt = (list, v) => list.map((m) => `<option value="${esc(m.uid)}"${m.uid === v ? " selected" : ""}>${esc(fname(m.uid, gid))}</option>`).join("");
+      const modes = kind === "pay" ? [["iPay", "我還別人"], ["theyPay", "別人還我"]] : [["iOwe", "我欠別人"], ["theyOwe", "別人欠我"], ["split", "大家平分"]];
+      el.innerHTML = `<div class="sheet-h"><h3>${kind === "pay" ? "記還款" : "記一筆朋友帳"}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <div class="seg" style="margin-bottom:8px">${modes.map(([v, t]) => `<button data-fm="${v}" class="${st.mode === v ? "on" : ""}">${t}</button>`).join("")}</div>
+        <div class="amt-disp"></div>
+        ${kind === "pay" ? "" : `<div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="例如：午餐"></div>`}
+        ${st.mode === "split" ? `<div class="field"><label for="f-payer">誰付的</label><select id="f-payer">${opt(mem, st.payer)}</select></div>
+          <div class="field"><span class="lab">誰要分</span><div class="pick-row" style="padding:0">${mem.map((m) => `<button class="chip${st.to.includes(m.uid) ? " on" : ""}" data-fto="${esc(m.uid)}">${esc(fname(m.uid, gid))}</button>`).join("")}</div></div>`
+        : `<div class="field"><label for="f-who">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</label><select id="f-who">${opt(others, st.who)}</select></div>`}
+        ${keypadHTML()}`;
+      bindKeypad(el, st, (amt) => {
+        const item = kind === "pay" ? "還款" : st.item.trim();
+        if (!item) { toast("寫一下項目，例如：午餐"); return; }
+        const m = st.mode, payer = m === "iOwe" || m === "theyPay" ? st.who : m === "split" ? st.payer : me;
+        const to = m === "split" ? st.to : m === "iOwe" || m === "theyPay" ? [me] : [st.who];
+        if (m === "split" && to.length < 2) return toast("平分至少要兩個人");
+        const e = { id: "A" + C.newId(), t: Date.now(), g: gid, item, amt, payer, to, kind: kind === "pay" ? "pay" : "exp", by: me, src: "App", del: false };
+        s.close();
+        queueFriend({ op: "add", e }, e);
+        toast(`已記：${item} ${C.money(amt)}`);
+      });
+    };
+    draw();
+    el.addEventListener("input", (e) => { if (e.target.id === "f-item") st.item = e.target.value; });
+    el.addEventListener("change", (e) => { if (e.target.id === "f-who") st.who = e.target.value; if (e.target.id === "f-payer") st.payer = e.target.value; });
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      if (t.dataset.close !== undefined) return s.close();
+      if (t.dataset.fm) { st.mode = t.dataset.fm; draw(); }
+      if (t.dataset.fto) { const u = t.dataset.fto; st.to = mem.map((x) => x.uid).filter((x) => (x === u ? !st.to.includes(u) : st.to.includes(x))); draw(); }
+    });
+  });
+}
+async function friendEntry(id) {
+  const e = fr().entries.find((x) => x.id === id);
+  if (!e) return;
+  const mine = e.by === fr().me;
+  const v = await ask(`${e.item} ${C.money(e.amt)}`, `${describeF(e)}・${mmdd(e.t)}・${e.src === "App" ? "在 App 記的" : "在 LINE 記的"}${mine ? "" : `（${fname(e.by, e.g)} 記的，只有記的人能刪）`}`,
+    mine ? [["no", "關閉"], ["del", "刪除這筆", "danger"]] : [["no", "關閉"]]);
+  if (v === "del") queueFriend({ op: "del", id });
 }
 
 // ---- 借入借出
@@ -590,7 +743,8 @@ function pgDebts() {
     <div class="row-btns"><button class="btn primary grow" data-newdebt>${ico("plus")}記一筆借貸</button></div>
     <p class="small muted">借貸不算進收支：錢只是暫時在別人那裡。</p>
     ${open.map(row).join("") || `<div class="empty">沒有還沒還清的借貸。</div>`}
-    ${done.length ? `<details style="margin-top:16px"><summary class="small muted">已還清（${done.length}）</summary>${done.map(row).join("")}</details>` : ""}`;
+    ${done.length ? `<details style="margin-top:16px"><summary class="small muted">已還清（${done.length}）</summary>${done.map(row).join("")}</details>` : ""}
+    ${data.prefs.friend ? "" : `<p class="small muted" style="margin-top:24px">和朋友用 LINE 群組記帳？<button class="btn text small" data-goto="friends" style="padding:0">和 LINE 記帳群組連動</button></p>`}`;
 }
 function debtForm(d = null) {
   const f = d ? { ...d } : { dir: "lend", who: "", amt: "", date: today(), note: "" };
@@ -945,6 +1099,18 @@ async function onClick(e) {
   if (d.cal) { ui.calMonth = C.addMonths(ui.calMonth, +d.cal); ui.calDay = ""; return render(); }
   if (d.day) { ui.calDay = ui.calDay === d.day ? "" : d.day; return render(); }
   if (d.addday) return openForm(null, { date: d.addday });
+  // 朋友分帳
+  if (d.fsync !== undefined) return syncFriends();
+  if (d.fg) { ui.fg = d.fg; history.pushState({ tab: "more", more: "friends", fg: d.fg }, ""); render(); return window.scrollTo(0, 0); }
+  if (d.fadd !== undefined) return friendForm("exp");
+  if (d.frepay !== undefined) return friendForm("pay");
+  if (d.fe) return friendEntry(d.fe);
+  if (d.fpaste !== undefined) { const v = await ask("貼上連動連結", "私訊 LINE 記帳機器人「連動碼」，把它回的連結整段貼在這裡。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseLink(v)); return; }
+  if (d.funlink !== undefined) {
+    if (!(await sure("解除連動？", "這台手機就不會再看到朋友帳。已經算進支出的那幾筆會留著（可以自己刪）。LINE 群組裡的帳不受影響。", "解除", "danger"))) return;
+    const { friends, friendQ, ...rest } = data;
+    commit({ ...rest, prefs: (({ friend, ...p }) => p)(data.prefs) }); toast("解除連動了"); return go("more");
+  }
   // 更多
   if (d.newdebt !== undefined) return debtForm();
   if (d.debt) return debtForm(data.debts.find((x) => x.id === d.debt));
@@ -993,6 +1159,7 @@ function onInput(e) {
 function onChange(e) {
   const t = e.target;
   if (t.id === "imp" && t.files?.[0]) { importBackup(t.files[0]); t.value = ""; return; }
+  if (t.id === "f-auto") { commit({ ...data, prefs: { ...data.prefs, friend: { ...data.prefs.friend, auto: t.checked } } }); if (t.checked) syncFriends(); return; }
   if (t.id === "m-start") { commit({ ...data, prefs: { ...data.prefs, monthStart: Number(t.value) } }); ui.period = periodNow(); return render(); }
   if (t.dataset.wpay !== undefined || t.dataset.wcat !== undefined) {
     const isPay = t.dataset.wpay !== undefined, name = isPay ? t.dataset.wpay : t.dataset.wcat, key = isPay ? "pays" : "cats", max = C.WHEEL_MAX[key];
@@ -1017,12 +1184,16 @@ function start() {
   history.replaceState({ tab: "home" }, "");
   render();
   if (res.added.length) toast(`自動記了 ${res.added.length} 筆固定收支`);
+  const link = /#link=/.test(location.hash) ? C.parseLink(location.hash) : undefined;     // 從 LINE 機器人的連動連結打開
+  if (link !== undefined) { history.replaceState({ tab: "home" }, "", location.pathname + location.search); linkFriend(link); }
+  else if (data.prefs.friend) syncFriends({ quiet: true });
   try { navigator.storage?.persist?.(); } catch { /* 不支援 */ }
   addEventListener("ledger:installable", () => { if (ui.more === "install") render(); });
   if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./sw.js").catch(() => {});
   // 隔天打開沒有重新整理：回到 App 時換成今天這一期、補記固定收支
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
+    if (data.prefs.friend && Date.now() - fst.lastTry > 60000) syncFriends({ quiet: true });
     const r = C.applyRecurring(data, today());
     if (r.added.length) { commit(r.data); toast(`自動記了 ${r.added.length} 筆固定收支`); }
   });

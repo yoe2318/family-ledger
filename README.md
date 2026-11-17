@@ -15,6 +15,13 @@
 - 數字鍵盤上面的小把手：點一下收起，按住上下拖調大小；點備註打字時鍵盤會自動收起。
 - 更多：借入借出、存錢目標、每月預算、固定收支（每月自動記）、分類／細項、付款方式、扇形選單、外觀（主色、背景顏色和款式、深淺色、鍵盤大小）、每月起算日、備份與還原。
 
+## 朋友分帳（LINE 記帳群組連動）
+- 只有拿到連動碼的人才有這個功能；沒連動的人（家人）完全看不到。
+- 在 LINE 私訊記帳機器人「連動碼」→ 點它回的連結 → App 出現「更多 → 朋友分帳」，只看得到自己有參加的群組。
+- LINE 群組裡的指令：`午餐 120`（我欠對方，兩人群組）、`午餐 120 小明`（我欠小明）、`晚餐 900 平分`（我付、大家平分）、`晚餐 900 平分 小明`（小明付）、`還 500 小明`、`查詢`、`刪除`（刪自己最後一筆）、`群組名 xxx`、`說明`；私訊：`連動碼`、`換連動碼`。
+- 開新的分帳本：開一個 LINE 群組，把記帳機器人邀進去。
+- 自己分到的那份會自動變成支出（id 是 `fr-…`，備註「朋友帳・項目」），可以在朋友分帳頁關掉。
+
 ## 備份（很重要）
 換手機、刪掉 App、清除瀏覽器資料時帳會不見。偶爾到「更多 → 備份與還原 → 匯出備份檔」，把檔案存到雲端硬碟或傳給自己。超過 30 天沒備份，首頁會提醒。換手機時在新手機「從備份檔還原」。
 
@@ -30,7 +37,9 @@
     cats: { out: [{ name, icon, subs }], in: [...] }, pays, shortcuts, wheel: { cats, pays },
     budget: { total, cats }, recurring: [{ id, type, amt, cat, sub, pay, note, day, from, last, off }],
     debts: [{ id, dir: lend|borrow, who, amt, date, note, pays, done }], goals: [{ id, name, target, deps, done }],
-    prefs: { theme, mode, monthStart, lastPay }, lastBackup }
+    prefs: { theme, mode, monthStart, lastPay, bg, pattern, keyH, friend?: { url, key, auto } }, lastBackup,
+    friends?: { me, at, groups, members, entries }, friendQ?: [等著上傳的] }
   ```
   讀不懂的舊資料不會被蓋掉，會另存成 `ledger-v1-broken-時間`。
+- 朋友分帳的伺服器是 Google Apps Script（帳號 yoe2318 的「未命名的專案」，綁 LINE 記帳機器人）：程式在 `gas/logic.js`（純邏輯）＋`gas/Code.js`，貼到 Apps Script 時兩個檔合成一個 `程式碼.gs`。機密（`LINE_TOKEN`、`SHEET_ID`）放在 Apps Script 的「專案設定 → 指令碼屬性」，不要寫進程式（這個 repo 是公開的）。改完到「部署 → 管理部署作業 → 編輯 → 新版本」，網址不變。測試：`node tests/gas.test.mjs`、`node tests/gas-code.test.mjs`（假的試算表）。資料在試算表「Line _記帳」的「群組／成員／連動／明細v2」分頁；舊的「記帳明細」不動。
 - 圖示是 Lucide（ISC 授權），內嵌在 `app.js` 的 `ICONS`。

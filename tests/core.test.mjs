@@ -144,5 +144,32 @@ const cp = C.cleanData({ items: [], prefs: { bg: "sky", pattern: "dots", keyH: 6
 eq("偏好：背景、款式、鍵盤大小", [cp.bg, cp.pattern, cp.keyH], ["sky", "dots", 64]);
 eq("偏好：亂填的改回預設", ((p) => [p.bg, p.pattern, p.keyH])(C.cleanData({ items: [], prefs: { bg: "neon", pattern: "zebra", keyH: -3 } }).prefs), ["paper", "grid", 52]);
 
+// ---- 朋友分帳
+const U = encodeURIComponent("https://script.google.com/macros/s/AKfycb-x_1/exec");
+eq("連動連結", C.parseLink("#link=" + U + "~abc123def456"), { url: "https://script.google.com/macros/s/AKfycb-x_1/exec", key: "abc123def456" });
+eq("連動連結：別的網站不收", C.parseLink("#link=" + encodeURIComponent("https://evil.com/x") + "~abc123def456"), null);
+eq("連動連結：沒有", C.parseLink("#home"), null);
+const FE = (id, payer, to, amt, kind = "exp", del = false, t = new Date(2026, 10, 3).getTime()) => ({ id, t, g: "G", item: "午餐", amt, payer, to, kind, by: "a", src: "LINE", del });
+eq("平分零頭給付款人", C.splitShares(100, ["a", "b", "c"], "a"), { a: 34, b: 33, c: 33 });
+eq("淨額相抵", C.friendBalances([FE(1, "b", ["a"], 120), FE(2, "a", ["b"], 50)]), [{ from: "a", to: "b", amt: 70 }]);
+eq("還清", C.friendBalances([FE(1, "b", ["a"], 120), FE(2, "a", ["b"], 120, "pay")]), []);
+eq("我的份", [C.friendShare(FE(1, "b", ["a"], 120), "a"), C.friendShare(FE(1, "a", ["b"], 120), "a"), C.friendShare(FE(1, "a", ["b"], 120, "pay"), "a"), C.friendShare(FE(1, "a", ["a", "b", "c"], 100), "a")], [120, 0, 0, 34]);
+const cats0 = C.emptyData().cats;
+eq("猜分類", ["早餐", "昨天（午餐+晚餐）", "西瓜鮮奶", "小籠包", "車票錢和餐費", "藥膏", "口紅", "借錢"].map((x) => { const g = C.guessCat(x, cats0); return g.cat + (g.sub ? "/" + g.sub : ""); }),
+  ["餐飲/早餐", "餐飲/午餐", "餐飲/飲料", "餐飲", "交通", "醫療", "購物", "其他"]);
+const sync1 = { me: "a", entries: [FE("e1", "b", ["a"], 120), FE("e2", "a", ["b"], 80), FE("e3", "a", ["a", "b"], 300), FE("e4", "b", ["a"], 50, "exp", true)] };
+let fr = C.friendItems([{ id: "x", type: "out", amt: 5, cat: "餐飲", sub: "", pay: "", date: "2026-11-01", note: "", t: 0 }], sync1, cats0);
+eq("朋友帳變支出：我的份才算", fr.items.filter((x) => x.id.startsWith("fr-")).map((x) => [x.id, x.amt, x.cat, x.sub, x.date]), [["fr-e1", 120, "餐飲", "午餐", "2026-11-03"], ["fr-e3", 150, "餐飲", "午餐", "2026-11-03"]]);
+eq("原本的紀錄留著", fr.items[0].id, "x");
+const edited = fr.items.map((x) => (x.id === "fr-e1" ? { ...x, cat: "娛樂" } : x));
+const fr2 = C.friendItems(edited, { me: "a", entries: [FE("e1", "b", ["a"], 130), FE("e3", "a", ["a", "b"], 300, "exp", true)] }, cats0);
+eq("再同步：不重複、改金額、保留我改的分類、刪掉的拿掉", fr2.items.filter((x) => x.id.startsWith("fr-")).map((x) => [x.id, x.amt, x.cat]), [["fr-e1", 130, "娛樂"]]);
+eq("再同步：計數", [fr2.added, fr2.removed], [0, 1]);
+const cf = C.cleanData({ items: [], prefs: { friend: { url: "https://script.google.com/macros/s/AKfycb-x_1/exec", key: "abc123def456" } }, friends: { me: "a", at: 5, groups: [{ id: "G", name: "我們" }], members: [{ uid: "a", g: "G", name: "我" }], entries: [FE("e1", "b", ["a"], 120), { amt: -1 }] }, friendQ: [{ op: "add", e: {} }, { op: "hack" }] });
+eq("備份保留連動設定", cf.prefs.friend, { url: "https://script.google.com/macros/s/AKfycb-x_1/exec", key: "abc123def456", auto: true });
+eq("備份保留朋友帳快取（壞的丟掉）", [cf.friends.groups.length, cf.friends.entries.length, cf.friendQ.length], [1, 1, 1]);
+eq("亂的連動設定不收", C.cleanData({ items: [], prefs: { friend: { url: "https://evil.com", key: "abc123def456" } } }).prefs.friend, undefined);
+eq("沒連動就沒有朋友欄位", ["friends", "friendQ"].map((k) => k in C.cleanData({ items: [] })), [false, false]);
+
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);
