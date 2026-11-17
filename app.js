@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -885,7 +885,7 @@ function acctRow() {
   if (!C.acctShown(data)) return "";
   const bal = C.acctBalances(data);
   const bills = data.accounts.map((a) => ({ a, b: C.cardBill(data, a, today()) })).filter((x) => x.b?.amount > 0);
-  return `<div class="accts">${data.accounts.map((a) => `<button class="acct" data-goto="accts"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
+  return `<div class="accts">${data.accounts.map((a) => `<button class="acct" data-recon="${esc(a.id)}" title="點一下對帳"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
       ${data.accounts.length > 1 ? `<button class="btn acct-mv" data-move>${ico("repeat")}移動</button>` : ""}</div>
     ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}`;
 }
@@ -939,9 +939,32 @@ function moveForm(m = null, preset = {}) {
     el.addEventListener("input", (e) => { if (e.target.id === "m-note") st.note = e.target.value; if (e.target.id === "m-date") st.date = e.target.value; });
   });
 }
+// 對帳：輸入現在實際有多少（信用卡是實際欠多少），差額可以記成支出／收入，或只改金額
+async function reconcile(a) {
+  const card = a.type === "card", cur = C.acctBalances(data)[a.id], shown = card ? -cur : cur;
+  const v = await ask(`${a.name}對帳`, `App 算的是 ${card ? "欠 " : ""}${C.money(shown)}。${card ? "現在實際欠多少？" : "數一下現在實際有多少？"}`, [["no", "取消"], ["ok", "下一步", "primary"]], "");
+  if (v === null || !v.trim()) return;
+  const n = Math.round(Number(v.replace(/[,\s]/g, "")));
+  if (!Number.isFinite(n)) return toast("金額請打整數");
+  const diff = (card ? -n : n) - cur;            // 正：實際比 App 多；負：實際比較少
+  if (!diff) return toast("剛好對上，不用調整");
+  const other = data.cats.out.some((c) => c.name === "其他") ? "其他" : data.cats.out.at(-1).name;
+  const otherIn = data.cats.in.some((c) => c.name === "其他") ? "其他" : data.cats.in.at(-1).name;
+  const less = diff < 0, amt = Math.abs(diff);
+  const how = await ask(`差了 ${C.money(amt)}`, less ? `實際比 App 算的少 ${C.money(amt)}，可能有花費沒記到。` : `實際比 App 算的多 ${C.money(amt)}，可能有收入沒記到。`,
+    [[less ? "out" : "in", less ? "記成一筆支出（沒記到的花費）" : "記成一筆收入", "primary"], ["fix", "只把金額改對（不算收支）"], ["no", "取消"]]);
+  if (how === "fix") {
+    commit({ ...data, accounts: data.accounts.map((x) => (x.id === a.id ? { ...x, open: x.open + diff } : x)) });
+    return toast(`${a.name}改成 ${C.money(card ? -(cur + diff) : cur + diff)}`);
+  }
+  if (how === "out" || how === "in") {
+    addItem({ id: C.newId(), type: how, amt, cat: how === "out" ? other : otherIn, sub: "", pay: "", acct: a.id, date: today(), note: "對帳：" + (how === "out" ? "沒記到的花費" : "沒記到的收入"), t: Date.now() },
+      `已記：對帳 ${C.money(amt)}（${a.name}）`);
+  }
+}
 function pgAccts() {
   const bal = C.acctBalances(data), sel = (attr, cur) => `<select ${attr}>${data.accounts.map((a) => `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>`;
-  return `${subHead("帳戶")}<p class="small muted">錢放在哪裡。下面設定好「付款方式從哪裡扣」，記帳時就會自動從對的帳戶扣，不用每次選。帳戶之間搬錢（提款、繳卡費）用「移動」，不算支出。</p>
+  return `${subHead("帳戶")}<p class="small muted">錢放在哪裡；點帳戶可以改設定或「對帳」（輸入實際有多少，自動補差額）。下面設定好「付款方式從哪裡扣」，記帳時就會自動從對的帳戶扣，不用每次選。帳戶之間搬錢（提款、繳卡費）用「移動」，不算支出。</p>
     ${data.accounts.map((a) => `<button class="menu-row" data-acct="${esc(a.id)}"><span class="t">${esc(a.name)}<small>${C.ACCT_TYPES[a.type]}${a.card ? `・每月 ${a.card.close} 號結帳、${a.card.due} 號繳` : ""}</small></span><span class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</span><span class="chev">${ico("chevron-right")}</span></button>`).join("")}
     <div class="row-btns"><button class="btn grow" data-newacct>${ico("plus")}新增帳戶</button><button class="btn grow" data-preset>快速設定：郵局＋錢包＋信用卡</button></div>
     ${data.accounts.length > 1 ? `<div class="sec-h"><span>付款方式從哪裡扣</span></div>
@@ -966,7 +989,8 @@ function acctForm(a = null) {
         ${f.type === "card" ? `<div class="field row"><label for="a-close">每月幾號結帳</label>${days("a-close", f.card.close)}</div>
           <div class="field row"><label for="a-due">每月幾號繳</label>${days("a-due", f.card.due)}</div>
           <div class="field row"><label for="a-from">卡費從哪裡繳</label><select id="a-from">${others.map((x) => `<option value="${esc(x.id)}"${x.id === f.card.from ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div>` : ""}
-        <div class="row-btns"><button class="btn primary grow" data-asave>存起來</button></div>`;
+        <div class="row-btns"><button class="btn primary grow" data-asave>存起來</button>${a ? `<button class="btn grow" data-arecon>對帳</button>` : ""}</div>
+        ${a ? `<p class="small muted" style="margin:0">對帳：輸入現在實際有多少，App 幫你補上差額。</p>` : ""}`;
     };
     draw();
     el.addEventListener("input", (e) => { const id = e.target.id; if (id === "a-name") f.name = e.target.value; if (id === "a-open") f.openS = e.target.value; });
@@ -977,6 +1001,7 @@ function acctForm(a = null) {
       const d = t.dataset;
       if (d.close !== undefined) return s.close();
       if (d.atype) { f.type = d.atype; draw(); }
+      if (d.arecon !== undefined) { s.close(); return setTimeout(() => reconcile(data.accounts.find((x) => x.id === a.id)), 80); }
       if (d.adel !== undefined) {
         if (!(await sure(`刪除「${a.name}」？`, "用它記的帳會改算到其他帳戶；和它有關的移動、捷徑會一起刪掉。", "刪除", "danger"))) return;
         s.close(); return commit(C.removeAccount(data, a.id));
@@ -1360,6 +1385,7 @@ async function onClick(e) {
   if (d.moveId) { const m = data.moves.find((x) => x.id === d.moveId); if (m) moveForm(m); return; }
   if (d.move !== undefined) return moveForm();
   if (d.paycard) { const a = data.accounts.find((x) => x.id === d.paycard), b = a && C.cardBill(data, a, today()); if (b) moveForm(null, { from: a.card.from, to: a.id, amt: b.amount, note: "繳卡費" }); return; }
+  if (d.recon) { const a = data.accounts.find((x) => x.id === d.recon); if (a) reconcile(a); return; }
   if (d.acct) return acctForm(data.accounts.find((x) => x.id === d.acct));
   if (d.newacct !== undefined) return acctForm();
   if (d.preset !== undefined) { if (await sure("快速設定帳戶？", "建立「郵局、錢包、信用卡」三個帳戶：現金從錢包扣、信用卡記在卡上、其他付款方式從郵局扣，收入存進郵局。名稱和金額之後都可以改。", "設定")) { commit(C.presetAccounts(data)); toast("設好了，點帳戶填現在有多少錢"); } return; }
