@@ -310,3 +310,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .acct-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .acct-total b { font-size: 20px; font-weight: 500; }
 .acct-total small { display: block; color: var(--muted); font-size: var(--fs-small); }
+/* 月曆換月份的滑入 */
+.cal.in-r { animation: cal-in-r .22s ease-out; }
+.cal.in-l { animation: cal-in-l .22s ease-out; }
+@keyframes cal-in-r { from { transform: translateX(24px); opacity: .3; } }
+@keyframes cal-in-l { from { transform: translateX(-24px); opacity: .3; } }

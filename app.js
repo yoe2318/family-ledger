@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.3.2";
+const VERSION = "1.3.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -565,6 +565,13 @@ function renderStats() {
 }
 
 // ================================================================ 月曆
+// 換月份（按鈕或左右滑）：往左滑＝下個月，往右滑＝上個月，月曆從那一邊滑進來
+function calShift(n) {
+  ui.calMonth = C.addMonths(ui.calMonth, n); ui.calDay = "";
+  render();
+  const g = $(".cal");
+  if (g && !matchMedia("(prefers-reduced-motion: reduce)").matches) { g.classList.add(n > 0 ? "in-r" : "in-l"); setTimeout(() => g.classList.remove("in-r", "in-l"), 250); }
+}
 function renderCal() {
   const m = ui.calMonth, [y, mo] = m.split("-").map(Number), first = new Date(y, mo - 1, 1).getDay(), days = new Date(y, mo, 0).getDate();
   const tot = C.dayTotals(data.items, m), td = today();
@@ -1374,6 +1381,15 @@ function buildShell() {
   main.addEventListener("input", onInput);
   main.addEventListener("compositionend", (e) => onInput({ target: e.target, isComposing: false }));
   main.addEventListener("change", onChange);
+  // 月曆左右滑換月份（只看水平方向明顯的滑動，上下捲動不受影響）
+  let sw = null;
+  main.addEventListener("touchstart", (e) => { sw = ui.tab === "cal" && e.touches.length === 1 && !e.target.closest("input, select") ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
+  main.addEventListener("touchend", (e) => {
+    if (!sw || ui.tab !== "cal") return;
+    const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y;
+    sw = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) calShift(dx < 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 async function onClick(e) {
@@ -1397,7 +1413,7 @@ async function onClick(e) {
   if (d.back !== undefined) return history.back();
   if (d.stype) { ui.statType = d.stype; ui.openCat = null; return render(); }
   if (d.ocat !== undefined) { ui.openCat = ui.openCat === d.ocat ? null : d.ocat; return render(); }
-  if (d.cal) { ui.calMonth = C.addMonths(ui.calMonth, +d.cal); ui.calDay = ""; return render(); }
+  if (d.cal) return calShift(+d.cal);
   if (d.day) { ui.calDay = ui.calDay === d.day ? "" : d.day; return render(); }
   if (d.addday) return openForm(null, { date: d.addday });
   // 朋友分帳
