@@ -176,6 +176,19 @@ function linkFor_(db, uid, renew) {
   return APP_URL + "#link=" + encodeURIComponent(url) + "~" + key;
 }
 
+// 「查詢」用：每兩個人從以前到現在各欠多少、還了多少、相抵後誰欠誰
+function totalsText_(db, gid) {
+  var ps = LG.pairTotals(db.entries.filter(function (e) { return e.g === gid; }));
+  if (!ps.length) return "目前還沒有帳";
+  return ps.map(function (p) {
+    var A = nameOf_(db, p.a), B = nameOf_(db, p.b);
+    var lines = [A + " ↔ " + B, "・" + A + " 欠 " + B + " 合計 " + p.ab, "・" + B + " 欠 " + A + " 合計 " + p.ba];
+    if (p.apay || p.bpay) lines.push("・已還：" + A + " 還 " + p.apay + "、" + B + " 還 " + p.bpay);
+    lines.push(p.net ? "➜ 相抵後：" + nameOf_(db, p.net.from) + " 欠 " + nameOf_(db, p.net.to) + " " + p.net.amt + " 元" : "➜ 相抵後：兩清");
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
 var ERR = { two: "一則訊息只能有一個金額喔", amt: "金額要是正整數（例如 120）", noamt: "要寫金額，例如：還 500", noitem: "要寫項目，例如：午餐 120" };
 
 function handleEvent_(ev) {
@@ -224,7 +237,7 @@ function handleEvent_(ev) {
   if (p.cmd === "claim") return reply_(tk, "沒有舊帳可以搬。");
   if (p.cmd === "query") {
     var gname = (groupOf_(db, gid) || {}).name;
-    return reply_(tk, "【" + (gname || "這個群組") + "】\n" + balanceText_(db, gid));
+    return reply_(tk, "【" + (gname || "這個群組") + "】從以前到現在\n\n" + totalsText_(db, gid));
   }
   if (p.cmd === "rename") {
     var gg = groupOf_(db, gid); gg.name = p.name; db.sh.g.getRange(gg.row, 2).setValue(p.name);

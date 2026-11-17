@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -280,7 +280,7 @@ function openForm(item = null, preset = {}) {
     const draw = () => {
       const subs = catOf(f.type, f.cat)?.subs || [];
       el.innerHTML = `
-        <div class="sheet-h"><div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button></div>
+        <div class="sheet-h"><div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button>${!item && friendOn() ? `<button data-type="friend">朋友帳</button>` : ""}</div>
           <h3></h3>${item ? `<button class="btn text danger" data-del>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <div class="amt-disp"></div>
         <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}</div>
@@ -303,6 +303,7 @@ function openForm(item = null, preset = {}) {
       const t = e.target.closest("button, input[type=checkbox]");
       if (!t) return;
       if (t.dataset.close !== undefined) return s.close();
+      if (t.dataset.type === "friend") { s.close(); setTimeout(() => friendForm("exp", null), 80); return; }   // 等上一頁的返回處理完再開
       if (t.dataset.type) {          // 收入通常不是用「付款方式」：切到收入先空著，切回支出用上次的
         if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; draw(); }
         return;
@@ -357,10 +358,19 @@ function useShortcut(sc) {
 }
 
 // ================================================================ 長按一劃：扇形選單
+const FRIEND_WHEEL_MAX = 2;
+// 扇形選單內圈的朋友（「某人付」）：存在這台裝置；沒設過就用前兩位
+function wheelFriends() {
+  if (!friendOn()) return [];
+  const people = friendPeople(), key = (m) => m.g + "|" + m.uid;
+  const saved = lsGet("ledger-friend-wheel", null);
+  return (Array.isArray(saved) ? people.filter((m) => saved.includes(key(m))) : people.slice(0, FRIEND_WHEEL_MAX)).slice(0, FRIEND_WHEEL_MAX);
+}
 function wheelLists() {
   const cats = data.wheel.cats.filter((c) => catOf("out", c));
-  const pays = data.wheel.pays.filter((p) => data.pays.includes(p));
-  return { cats: cats.length ? cats : data.cats.out.slice(0, C.WHEEL_MAX.cats).map((c) => c.name), pays };
+  const pays = data.wheel.pays.filter((p) => data.pays.includes(p)), fs = wheelFriends();
+  return { cats: cats.length ? cats : data.cats.out.slice(0, C.WHEEL_MAX.cats).map((c) => c.name),
+    pays: [...pays, ...fs.map((m) => fname(m.uid, m.g) + "付")], pf: [...pays.map(() => null), ...fs] };
 }
 const polar = (cx, cy, r, a) => [cx + r * Math.cos((a * Math.PI) / 180), cy - r * Math.sin((a * Math.PI) / 180)];
 function annulus(cx, cy, ri, ro, a0, a1) {
@@ -370,15 +380,15 @@ function annulus(cx, cy, ri, ro, a0, a1) {
 function openWheel(st) {
   st.open = true;
   try { navigator.vibrate?.(12); } catch { /* 不支援震動 */ }
-  const { cats, pays } = wheelLists();
+  const { cats, pays, pf } = wheelLists();
   const k = Math.min(1, (innerWidth - 12) / (2 * (C.WHEEL_R.r2 + 6)), (st.cy - 70) / (C.WHEEL_R.r2 + 6));
   const R = { r0: C.WHEEL_R.r0 * k, r1: C.WHEEL_R.r1 * k, r2: C.WHEEL_R.r2 * k, slack: C.WHEEL_R.slack * k };
-  Object.assign(st, { cats, pays, R, pay: null, hit: null, hotKey: "" });
+  Object.assign(st, { cats, pays, pf, R, pay: null, friend: null, hit: null, hotKey: "" });
   const pad = 6, W = 2 * (R.r2 + pad), H = R.r2 + pad + R.r0 + pad, cx = W / 2, cy = R.r2 + pad;
   let svg = "";
   pays.forEach((p, i) => {
     const [a0, a1] = C.wheelSeg(i, pays.length), [tx, ty] = polar(cx, cy, (R.r0 + R.r1) / 2 + 2, (a0 + a1) / 2);
-    svg += `<path class="sg" data-pay="${i}" d="${annulus(cx, cy, R.r0 + 4, R.r1 - 2, a0 - 0.6, a1 + 0.6)}"/><g data-payt="${i}"><text x="${tx}" y="${ty}">${esc(p)}</text></g>`;
+    svg += `<path class="sg${pf[i] ? " fr" : ""}" data-pay="${i}" d="${annulus(cx, cy, R.r0 + 4, R.r1 - 2, a0 - 0.6, a1 + 0.6)}"/><g data-payt="${i}"><text x="${tx}" y="${ty}">${esc(p)}</text></g>`;
   });
   cats.forEach((c, i) => {
     const [a0, a1] = C.wheelSeg(i, cats.length), [tx, ty] = polar(cx, cy, (R.r1 + R.r2) / 2 + 2, (a0 + a1) / 2);
@@ -400,7 +410,7 @@ function openWheel(st) {
 function wheelMove(st, x, y) {
   const hit = C.wheelHit(x - st.cx, y - st.cy, st.pays.length, st.cats.length, st.R);
   st.hit = hit;
-  if (hit?.ring === "pay") st.pay = st.pays[hit.idx];
+  if (hit?.ring === "pay") { st.pay = st.pays[hit.idx]; st.friend = st.pf[hit.idx]; }
   const hotKey = hit ? `${hit.ring}${hit.idx ?? ""}` : "";
   if (hotKey !== st.hotKey) { st.hotKey = hotKey; if (hit && hit.ring !== "cancel") try { navigator.vibrate?.(6); } catch { /* 不支援 */ } }
   const L = st.layer;
@@ -439,6 +449,7 @@ function bindFab(btn) {
     if (!s.open) { if (!cancel) openForm(); return; }
     closeWheel(s);
     if (cancel || s.hit?.ring !== "cat") return;
+    if (s.friend) return friendQuick(s.friend, s.cats[s.hit.idx]);
     const pay = s.pay ?? (s.pays.includes(data.prefs.lastPay) ? data.prefs.lastPay : s.pays[0] || "");
     quickAmount({ type: "out", cat: s.cats[s.hit.idx], pay });
   };
@@ -500,7 +511,7 @@ function renderHome() {
     ? `<div class="chips">${data.shortcuts.map((sc) => `<button class="chip" data-sc="${esc(sc.id)}">${esc(C.shortcutLabel(sc))}${sc.amt ? ` <span class="num">${C.money(sc.amt)}</span>` : ""}</button>`).join("")}<button class="chip add" data-goto="shortcuts">${ico("plus")}捷徑</button></div>`
     : "";
   return `${periodNav(`<button class="icon-btn" data-search aria-label="搜尋">${ico("search")}</button>`)}
-    <section class="hero">${hero}</section>${notes}${chips}
+    <section class="hero">${hero}</section>${friendSummary()}${notes}${chips}
     ${list.length ? dayList(list) : `<div class="empty">這期還沒有紀錄。<br>點下面的 ＋ 記一筆；按住 ＋ 往上劃，可以一次選好付款方式和分類。</div>`}`;
 }
 
@@ -627,11 +638,49 @@ async function syncFriends({ quiet = false } = {}) {
     fst.err = e.message === "key" ? "連動碼失效了：請私訊 LINE 記帳機器人「連動碼」，點新的連結。" : "現在連不上，先顯示上次的資料；在這裡記的帳會等連上再送。";
   } finally { fst.busy = false; if (!(ui.tab === "home" && ui.search !== null)) render(); }
 }
-function queueFriend(q, entry) {
+// 在這台記一筆朋友帳：先上畫面、排隊上傳；我有份的話，我的那份馬上算進支出（分類用 hint，之後同步只更新金額不動分類）
+function queueFriend(q, entry, hint = null) {
   const f = fr();
-  commit({ ...data, friendQ: [...(data.friendQ || []), q],
+  let items = data.items;
+  if (entry && data.prefs.friend?.auto) {
+    const v = C.friendShare(entry, f.me);
+    if (v > 0) items = [...items, { id: "fr-" + entry.id, type: "out", amt: v, ...(hint || C.guessCat(entry.item, data.cats)), pay: "", date: C.ymd(new Date(entry.t)), note: "朋友帳・" + entry.item, t: entry.t }];
+  }
+  commit({ ...data, items, friendQ: [...(data.friendQ || []), q],
     friends: entry ? { ...f, entries: [...f.entries, { ...entry, pending: true }] } : { ...f, entries: f.entries.map((e) => (e.id === q.id ? { ...e, del: true, pending: true } : e)) } });
   syncFriends();
+}
+const friendOn = () => !!(data.prefs.friend && fr().groups.length);
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
+// 別的群組成員（不含我），同一個人在不同群組各算一個
+const friendPeople = () => { const me = fr().me; return fr().members.filter((m) => m.uid !== me && fr().groups.some((g) => g.id === m.g)); };
+// 首頁一行：整體欠款（所有群組加起來，照人合併）
+function friendSummary() {
+  if (!friendOn()) return "";
+  const me = fr().me, per = new Map();
+  for (const g of fr().groups) for (const x of C.friendBalances(fr().entries.filter((e) => e.g === g.id))) {
+    if (x.to !== me && x.from !== me) continue;
+    const who = fname(x.to === me ? x.from : x.to, g.id);
+    per.set(who, (per.get(who) || 0) + (x.to === me ? x.amt : -x.amt));
+  }
+  const parts = [...per].filter(([, v]) => v).map(([n, v]) => (v > 0 ? `<span class="pos">${esc(n)}欠我 ${N(v)}</span>` : `<span>我欠${esc(n)} ${N(-v)}</span>`));
+  return `<button class="fsum" data-goto="friends">${ico("users")}<span class="t"><small>朋友帳（從以前到現在）</small>${parts.join("・") || "大家都兩清"}</span><span class="chev">${ico("chevron-right")}</span></button>`;
+}
+// 群組頁：我和每個人從以前到現在的總帳
+function pairBlocks(gid) {
+  const me = fr().me, ps = C.pairTotals(fr().entries.filter((e) => e.g === gid));
+  const mine = ps.filter((p) => p.a === me || p.b === me), rest = ps.filter((p) => p.a !== me && p.b !== me);
+  if (!ps.length) return `<div class="fb muted">還沒有帳</div>`;
+  const block = (p) => {
+    const iA = p.a === me, o = iA ? p.b : p.a, nm = esc(fname(o, gid));
+    const owesMe = iA ? p.ba : p.ab, iOwe = iA ? p.ab : p.ba, iPaid = iA ? p.apay : p.bpay, paidMe = iA ? p.bpay : p.apay;
+    const net = !p.net ? `<b>兩清</b>` : p.net.to === me ? `<b class="pos">${nm} 欠我 ${N(p.net.amt)}</b>` : `<b>我欠 ${nm} ${N(p.net.amt)}</b>`;
+    return `<div class="pair"><div class="pair-net">${net}</div>
+      <div class="pair-rows"><span>${nm} 欠我　合計 ${N(owesMe)}</span><span>我欠 ${nm}　合計 ${N(iOwe)}</span>${iPaid || paidMe ? `<span>已還：我還 ${N(iPaid)}・${nm} 還 ${N(paidMe)}</span>` : ""}</div></div>`;
+  };
+  const other = rest.filter((p) => p.net).map((p) => `<div class="fb small muted">${esc(fname(p.net.from, gid))} 欠 ${esc(fname(p.net.to, gid))} ${N(p.net.amt)}</div>`).join("");
+  return mine.map(block).join("") + other;
 }
 async function linkFriend(link) {
   if (!link) return toast("這不是連動連結：請私訊 LINE 記帳機器人「連動碼」，用它給的連結");
@@ -671,7 +720,7 @@ function pgFriends() {
   if (g) {
     const list = F.entries.filter((e) => e.g === g.id && !e.del).sort((a, b) => b.t - a.t);
     return `${subHead(g.name, syncBtn)}${status}
-      <div class="fbal">${balLines(g.id)}</div>
+      <div class="fbal">${pairBlocks(g.id)}</div>
       <div class="row-btns"><button class="btn primary grow" data-fadd>${ico("plus")}記一筆</button><button class="btn grow" data-frepay>記還款</button></div>
       <div class="sec-h"><span>明細（${list.length} 筆）</span><span>${esc(F.members.filter((m) => m.g === g.id).map((m) => fname(m.uid, g.id)).join("、"))}</span></div>
       ${list.map((e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
@@ -685,44 +734,103 @@ function pgFriends() {
     <div class="row-btns"><button class="btn danger" data-funlink>解除連動</button></div>
     <p class="small muted">LINE 群組裡打「說明」看所有指令。想和另一群朋友分帳：開一個 LINE 群組、把記帳機器人邀進去，就是一本新的分帳本。</p>`;
 }
-function friendForm(kind) {
-  const F = fr(), gid = ui.fg, me = F.me, mem = F.members.filter((m) => m.g === gid), others = mem.filter((m) => m.uid !== me);
-  if (!others.length) return toast("群組裡的其他人還沒在 LINE 說過話，等他們打一句「查詢」再記");
-  const st = { mode: kind === "pay" ? "iPay" : "iOwe", who: others[0].uid, payer: me, to: mem.map((m) => m.uid), item: "", expr: "" };
+// 記一筆朋友帳（群組頁的按鈕、記一筆的「朋友帳」分頁都用這個）。記住上次的群組、人、方式，下次只要點項目、打金額。
+function friendForm(kind, gid0 = ui.fg) {
+  const F = fr(), me = F.me, last = lsGet("ledger-friend-last", {});
+  const okG = (g) => F.groups.some((x) => x.id === g) && F.members.some((m) => m.g === g && m.uid !== me);
+  const gid = [gid0, last.g, ...F.groups.map((g) => g.id)].find((g) => g && okG(g));
+  if (!gid) return toast("群組裡的其他人還沒在 LINE 說過話，等他們打一句「查詢」再記");
+  const st = { g: gid, mode: kind === "pay" ? "iPay" : last.mode && last.mode !== "iPay" && last.mode !== "theyPay" ? last.mode : "iOwe", who: "", payer: me, to: [], item: "", hint: null, expr: "" };
+  const setGroup = (g) => {
+    st.g = g;
+    const mem = F.members.filter((m) => m.g === g), others = mem.filter((m) => m.uid !== me);
+    st.who = others.some((m) => m.uid === last.who) ? last.who : others[0].uid;
+    st.payer = me; st.to = mem.map((m) => m.uid);
+  };
+  setGroup(gid);
+  // 常用項目：餐飲的細項＋我最近記過的朋友帳項目
+  const quick = () => {
+    const food = (data.cats.out.find((c) => c.name === "餐飲")?.subs || []).slice(0, 4);
+    const recent = [...new Set(F.entries.filter((e) => e.by === me && e.kind === "exp").sort((a, b) => b.t - a.t).map((e) => e.item))].filter((x) => !food.includes(x)).slice(0, 4);
+    return [...food, ...recent];
+  };
   openSheet((el, s) => {
     const draw = () => {
-      const opt = (list, v) => list.map((m) => `<option value="${esc(m.uid)}"${m.uid === v ? " selected" : ""}>${esc(fname(m.uid, gid))}</option>`).join("");
+      const mem = F.members.filter((m) => m.g === st.g), others = mem.filter((m) => m.uid !== me);
       const modes = kind === "pay" ? [["iPay", "我還別人"], ["theyPay", "別人還我"]] : [["iOwe", "我欠別人"], ["theyOwe", "別人欠我"], ["split", "大家平分"]];
+      const chips = (list, attr, on) => `<div class="pick-row" style="padding:0">${list.map((m) => `<button class="chip${on(m.uid) ? " on" : ""}" data-${attr}="${esc(m.uid)}">${esc(fname(m.uid, st.g))}</button>`).join("")}</div>`;
+      const groups = F.groups.filter((g) => okG(g.id));
       el.innerHTML = `<div class="sheet-h"><h3>${kind === "pay" ? "記還款" : "記一筆朋友帳"}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        ${groups.length > 1 ? `<div class="pick-row" style="padding:0 0 8px">${groups.map((g) => `<button class="chip${g.id === st.g ? " on" : ""}" data-fgp="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>` : ""}
         <div class="seg" style="margin-bottom:8px">${modes.map(([v, t]) => `<button data-fm="${v}" class="${st.mode === v ? "on" : ""}">${t}</button>`).join("")}</div>
+        ${st.mode === "split" ? `<div class="field"><span class="lab">誰付的</span>${chips(mem, "fpay", (u) => u === st.payer)}</div><div class="field"><span class="lab">誰要分</span>${chips(mem, "fto", (u) => st.to.includes(u))}</div>`
+          : `<div class="field"><span class="lab">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</span>${chips(others, "fwho", (u) => u === st.who)}</div>`}
+        ${kind === "pay" ? "" : `<div class="pick-row" style="padding:0 0 4px">${quick().map((x) => `<button class="chip${x === st.item ? " on" : ""}" data-fq="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+          <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>`}
         <div class="amt-disp"></div>
-        ${kind === "pay" ? "" : `<div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="例如：午餐"></div>`}
-        ${st.mode === "split" ? `<div class="field"><label for="f-payer">誰付的</label><select id="f-payer">${opt(mem, st.payer)}</select></div>
-          <div class="field"><span class="lab">誰要分</span><div class="pick-row" style="padding:0">${mem.map((m) => `<button class="chip${st.to.includes(m.uid) ? " on" : ""}" data-fto="${esc(m.uid)}">${esc(fname(m.uid, gid))}</button>`).join("")}</div></div>`
-        : `<div class="field"><label for="f-who">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</label><select id="f-who">${opt(others, st.who)}</select></div>`}
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
         const item = kind === "pay" ? "還款" : st.item.trim();
-        if (!item) { toast("寫一下項目，例如：午餐"); return; }
+        if (!item) { toast("點一個項目或自己打，例如：午餐"); return; }
         const m = st.mode, payer = m === "iOwe" || m === "theyPay" ? st.who : m === "split" ? st.payer : me;
         const to = m === "split" ? st.to : m === "iOwe" || m === "theyPay" ? [me] : [st.who];
         if (m === "split" && to.length < 2) return toast("平分至少要兩個人");
-        const e = { id: "A" + C.newId(), t: Date.now(), g: gid, item, amt, payer, to, kind: kind === "pay" ? "pay" : "exp", by: me, src: "App", del: false };
+        const e = { id: "A" + C.newId(), t: Date.now(), g: st.g, item, amt, payer, to, kind: kind === "pay" ? "pay" : "exp", by: me, src: "App", del: false };
+        lsSet("ledger-friend-last", { g: st.g, who: st.who, mode: kind === "pay" ? last.mode : m });
         s.close();
-        queueFriend({ op: "add", e }, e);
-        toast(`已記：${item} ${C.money(amt)}`);
+        queueFriend({ op: "add", e }, e, st.hint);
+        toast(`已記：${item} ${C.money(amt)}（${describeF(e)}）`);
       });
     };
     draw();
-    el.addEventListener("input", (e) => { if (e.target.id === "f-item") st.item = e.target.value; });
-    el.addEventListener("change", (e) => { if (e.target.id === "f-who") st.who = e.target.value; if (e.target.id === "f-payer") st.payer = e.target.value; });
+    el.addEventListener("input", (e) => { if (e.target.id === "f-item") { st.item = e.target.value; st.hint = null; } });
     el.addEventListener("click", (e) => {
       const t = e.target.closest("button");
       if (!t) return;
-      if (t.dataset.close !== undefined) return s.close();
-      if (t.dataset.fm) { st.mode = t.dataset.fm; draw(); }
-      if (t.dataset.fto) { const u = t.dataset.fto; st.to = mem.map((x) => x.uid).filter((x) => (x === u ? !st.to.includes(u) : st.to.includes(x))); draw(); }
+      const d = t.dataset;
+      if (d.close !== undefined) return s.close();
+      if (d.fgp) { setGroup(d.fgp); draw(); }
+      if (d.fm) { st.mode = d.fm; draw(); }
+      if (d.fwho) { st.who = d.fwho; draw(); }
+      if (d.fpay) { st.payer = d.fpay; draw(); }
+      if (d.fto) { const u = d.fto, mem = F.members.filter((m) => m.g === st.g); st.to = mem.map((x) => x.uid).filter((x) => (x === u ? !st.to.includes(u) : st.to.includes(x))); draw(); }
+      if (d.fq !== undefined) {   // 點常用項目：餐飲細項就直接用餐飲＋細項當分類
+        st.item = d.fq;
+        const food = data.cats.out.find((c) => c.name === "餐飲");
+        st.hint = food?.subs.includes(d.fq) ? { cat: "餐飲", sub: d.fq } : null;
+        draw();
+      }
     });
+  });
+}
+// 扇形選單放手在「某人付」＋分類：記成「我欠某人」，金額打完就好
+function friendQuick(p, cat) {
+  const st = { expr: "", sub: "", note: "" };
+  openSheet((el, s) => {
+    const subs = catOf("out", cat)?.subs || [];
+    const draw = () => {
+      el.innerHTML = `<div class="sheet-h"><h3>${esc(fname(p.uid, p.g))} 付・${esc(cat)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <p class="small muted" style="margin:0 0 8px">記成：我欠 ${esc(fname(p.uid, p.g))}（${esc(fr().groups.find((g) => g.id === p.g)?.name || "")}），會同步到 LINE。</p>
+        ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === st.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        <div class="amt-disp"></div>
+        <div class="field"><label for="fq-note">項目</label><input id="fq-note" value="${esc(st.note)}" maxlength="40" placeholder="選填，不寫就用「${esc(cat)}」"></div>
+        ${keypadHTML()}`;
+      bindKeypad(el, st, (amt) => {
+        const me = fr().me, item = st.note.trim() || st.sub || cat;
+        const e = { id: "A" + C.newId(), t: Date.now(), g: p.g, item, amt, payer: p.uid, to: [me], kind: "exp", by: me, src: "App", del: false };
+        s.close();
+        queueFriend({ op: "add", e }, e, { cat, sub: st.sub });
+        toast(`已記：${item} ${C.money(amt)}（我欠 ${fname(p.uid, p.g)}）`);
+      });
+    };
+    draw();
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      if (t.dataset.close !== undefined) s.close();
+      if (t.dataset.sub !== undefined) { st.sub = st.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); }
+    });
+    el.addEventListener("input", (e) => { if (e.target.id === "fq-note") st.note = e.target.value; });
   });
 }
 async function friendEntry(id) {
@@ -973,6 +1081,8 @@ function pgWheel() {
   const box = (kind, name, on, i) => `<label class="check"><input type="checkbox" data-w${kind}="${esc(name)}"${on ? " checked" : ""}> ${esc(name)}${on ? ` <span class="small muted">（第 ${i + 1} 格）</span>` : ""}</label>`;
   return `${subHead("扇形選單")}<p class="small muted">按住下面的 ＋ 往上劃：先經過內圈選付款方式（不劃過就用上次的），停在外圈的分類放手，再打金額就記好了。順序照「分類」頁的排序。</p>
     <div class="sec-h"><span>內圈：付款方式（最多 ${C.WHEEL_MAX.pays} 個）</span></div>${data.pays.map((p) => box("pay", p, data.wheel.pays.includes(p), data.wheel.pays.indexOf(p))).join("")}
+    ${friendOn() ? `<div class="sec-h"><span>內圈：朋友（最多 ${FRIEND_WHEEL_MAX} 個）</span></div><p class="small muted" style="margin:0">劃過「某人付」再停在分類放手，就記成「我欠那個人」，會同步到 LINE 群組。</p>
+      ${friendPeople().map((m) => { const k = m.g + "|" + m.uid, on = wheelFriends().some((x) => x.g + "|" + x.uid === k); return `<label class="check"><input type="checkbox" data-wfr="${esc(k)}"${on ? " checked" : ""}> ${esc(fname(m.uid, m.g))}付 <span class="small muted">（${esc(fr().groups.find((g) => g.id === m.g)?.name || "")}）</span></label>`; }).join("")}` : ""}
     <div class="sec-h"><span>外圈：支出分類（最多 ${C.WHEEL_MAX.cats} 個）</span></div>${data.cats.out.map((c) => box("cat", c.name, data.wheel.cats.includes(c.name), data.wheel.cats.indexOf(c.name))).join("")}`;
 }
 
@@ -1159,6 +1269,11 @@ function onInput(e) {
 function onChange(e) {
   const t = e.target;
   if (t.id === "imp" && t.files?.[0]) { importBackup(t.files[0]); t.value = ""; return; }
+  if (t.dataset.wfr !== undefined) {
+    let cur = wheelFriends().map((m) => m.g + "|" + m.uid).filter((k) => k !== t.dataset.wfr);
+    if (t.checked) { if (cur.length >= FRIEND_WHEEL_MAX) { t.checked = false; return toast(`最多 ${FRIEND_WHEEL_MAX} 個，先取消一個`); } cur.push(t.dataset.wfr); }
+    lsSet("ledger-friend-wheel", cur); return render();
+  }
   if (t.id === "f-auto") { commit({ ...data, prefs: { ...data.prefs, friend: { ...data.prefs.friend, auto: t.checked } } }); if (t.checked) syncFriends(); return; }
   if (t.id === "m-start") { commit({ ...data, prefs: { ...data.prefs, monthStart: Number(t.value) } }); ui.period = periodNow(); return render(); }
   if (t.dataset.wpay !== undefined || t.dataset.wcat !== undefined) {

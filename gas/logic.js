@@ -88,6 +88,26 @@ var LG = (function () {
     return out;
   }
 
+  // 兩人之間從以前到現在的總帳：[{ a, b, ab(a 欠 b 合計), ba, apay(a 還 b), bpay, net:{from,to,amt}|null }]
+  function pairTotals(entries) {
+    var m = {};
+    function get(x, y) { var a = x < y ? x : y, b = x < y ? y : x, k = a + "|" + b; if (!m[k]) m[k] = { a: a, b: b, ab: 0, ba: 0, apay: 0, bpay: 0 }; return m[k]; }
+    entries.forEach(function (e) {
+      if (e.del) return;
+      if (e.kind === "pay") { var q = get(e.payer, e.to[0]); if (e.payer === q.a) q.apay += e.amt; else q.bpay += e.amt; return; }
+      var sh = splitShares(e.amt, e.to, e.payer);
+      Object.keys(sh).forEach(function (u) {
+        if (u === e.payer || !sh[u]) return;
+        var p = get(u, e.payer); if (u === p.a) p.ab += sh[u]; else p.ba += sh[u];
+      });
+    });
+    return Object.keys(m).sort().map(function (k) {
+      var p = m[k], v = p.ab - p.apay - (p.ba - p.bpay);
+      p.net = v > 0 ? { from: p.a, to: p.b, amt: v } : v < 0 ? { from: p.b, to: p.a, amt: -v } : null;
+      return p;
+    });
+  }
+
   // 某人在一筆帳裡「自己花掉」的錢（算進自己的支出用）。還款不算。
   function myShare(e, uid) {
     if (e.del || e.kind !== "exp" || e.to.indexOf(uid) < 0) return 0;
@@ -163,7 +183,7 @@ var LG = (function () {
     "・群組名 宿舍飯錢 → 幫這本帳取名字\n" +
     "・私訊我「連動碼」→ 在記帳 App 裡看帳、記帳";
 
-  return { parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, myShare: myShare,
+  return { parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
     migrateLegacy: migrateLegacy, buildEntry: buildEntry, describe: describe, amountOf: amountOf, HELP: HELP };
 })();
 if (typeof module !== "undefined") module.exports = LG;

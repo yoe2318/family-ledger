@@ -35,8 +35,8 @@ const rows = (n) => ss.s[n].v.slice(1).filter((r) => r[0]);
 // 1. 第一次收到訊息：建表、搬舊帳（3 筆，跳過沒金額的），原兩人群組自動接手舊帳
 let r = say("U1", "查詢", "G1");
 ok(rows("明細v2").length === 3, "搬了 3 筆", rows("明細v2").length);
-ok(/李宸yo 欠 劉芳慈 \d+ 元/.test(r), "查詢顯示淨額", r);
-ok(r.includes("李宸yo 欠 劉芳慈 " + (1500 + 195 - 345)), "淨額 1350", r);
+ok(/從以前到現在/.test(r), "查詢標題", r);
+ok(r.includes("相抵後：李宸yo 欠 劉芳慈 1350") && r.includes("合計 1695") && r.includes("合計 345"), "查詢：兩邊合計＋相抵 1350", r);
 ok(rows("明細v2").every((x) => x[2] === "G1"), "舊帳搬進 G1");
 ok(!rows("群組").some((x) => x[0] === "legacy"), "legacy 群組拿掉");
 ok(rows("明細v2").some((x) => x[5] === "U1" || x[6] === "U1"), "李宸yo 換成真的 userId");

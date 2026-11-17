@@ -171,5 +171,9 @@ eq("備份保留朋友帳快取（壞的丟掉）", [cf.friends.groups.length, c
 eq("亂的連動設定不收", C.cleanData({ items: [], prefs: { friend: { url: "https://evil.com", key: "abc123def456" } } }).prefs.friend, undefined);
 eq("沒連動就沒有朋友欄位", ["friends", "friendQ"].map((k) => k in C.cleanData({ items: [] })), [false, false]);
 
+const PT = C.pairTotals([FE(1, "b", ["a"], 6458), FE(2, "a", ["b"], 5840), FE(3, "a", ["b"], 100, "pay"), FE(4, "a", ["a", "b", "c"], 90), FE(5, "c", ["a"], 9, "exp", true)]);
+eq("兩人總帳", PT, [{ a: "a", b: "b", ab: 6458, ba: 5840 + 30, apay: 100, bpay: 0, net: { from: "a", to: "b", amt: 488 } }, { a: "a", b: "c", ab: 0, ba: 30, apay: 0, bpay: 0, net: { from: "c", to: "a", amt: 30 } }]);
+eq("總帳的相抵和淨額一致", PT.map((p) => p.net), C.friendBalances([FE(1, "b", ["a"], 6458), FE(2, "a", ["b"], 5840), FE(3, "a", ["b"], 100, "pay"), FE(4, "a", ["a", "b", "c"], 90)]));
+
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

@@ -85,6 +85,8 @@ eq([sum(L), sum(F)], [6458, 5840], "和「花費統計」一樣");
 eq(LG.balances(mg.entries), [{ from: "old:" + L, to: "old:" + F, amt: 618 }], "淨額：李宸yo 欠 劉芳慈 618");
 eq(LG.migrateLegacy([[new Date(), "a", 1, "x"]], "g").entries, [], "不是兩個人不搬");
 
+eq(LG.pairTotals(mg.entries).map((p) => [p.ab, p.ba, p.net.amt]), [[5840, 6458, 618]], "舊帳總帳：芳慈欠 5840／李宸yo欠 6458／相抵 618");
+
 // ---- describe
 const nm = (u) => ({ a: "李宸yo", b: "劉芳慈", c: "劉小明" }[u]);
 eq(LG.describe(E("b", ["a"], 120), nm), "李宸yo 欠 劉芳慈 120", "說明1");

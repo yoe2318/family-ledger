@@ -282,3 +282,14 @@ body.pat-plain { background-image: none; }
 .steps { padding-left: 20px; margin: 8px 0 16px; }
 .steps li { margin: 4px 0; }
 button.list-row { width: 100%; border: 0; border-bottom: 1px solid var(--line-2); background: none; text-align: left; color: inherit; font: inherit; }
+.pos { color: var(--ok); }
+.fsum { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: inherit; font: inherit; text-align: left; }
+.fsum .t { flex: 1; min-width: 0; }
+.fsum .t small { display: block; color: var(--muted); font-size: var(--fs-small); }
+.fsum .chev { color: var(--muted); }
+.pair { padding: 4px 0 8px; }
+.pair + .pair { border-top: 1px solid var(--line-2); padding-top: 8px; }
+.pair-net { font-size: 20px; }
+.pair-net b { font-weight: 500; }
+.pair-rows span { display: block; font-size: 14px; color: var(--muted); }
+.wheel .sg.fr:not(.hot):not(.picked) { fill: var(--info-bg); }

@@ -442,3 +442,20 @@ export function cleanFriends(raw) {
       .map((e) => ({ id: s(e.id, 60), t: Number(e.t) || 0, g: s(e.g, 80), item: s(e.item, 40), amt: Math.round(Number(e.amt)), payer: s(e.payer, 80), to: e.to.map((u) => s(u, 80)), kind: e.kind, by: s(e.by, 80), src: s(e.src, 8), del: !!e.del, ...(e.pending ? { pending: true } : {}) })),
   };
 }
+// 兩人之間從以前到現在的總帳：[{ a, b, ab(a 欠 b 合計), ba, apay(a 還 b 合計), bpay, net:{from,to,amt}|null }]，a<b
+export function pairTotals(entries) {
+  const m = {};
+  const get = (x, y) => { const [a, b] = x < y ? [x, y] : [y, x], k = a + "|" + b; return (m[k] ||= { a, b, ab: 0, ba: 0, apay: 0, bpay: 0 }); };
+  for (const e of entries) {
+    if (e.del) continue;
+    if (e.kind === "pay") { const p = get(e.payer, e.to[0]); if (e.payer === p.a) p.apay += e.amt; else p.bpay += e.amt; continue; }
+    for (const [u, v] of Object.entries(splitShares(e.amt, e.to, e.payer))) {
+      if (u === e.payer || !v) continue;
+      const p = get(u, e.payer); if (u === p.a) p.ab += v; else p.ba += v;
+    }
+  }
+  return Object.keys(m).sort().map((k) => {
+    const p = m[k], v = p.ab - p.apay - (p.ba - p.bpay);
+    return { ...p, net: v > 0 ? { from: p.a, to: p.b, amt: v } : v < 0 ? { from: p.b, to: p.a, amt: -v } : null };
+  });
+}

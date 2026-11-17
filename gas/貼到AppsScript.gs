@@ -89,6 +89,26 @@ var LG = (function () {
     return out;
   }
 
+  // 兩人之間從以前到現在的總帳：[{ a, b, ab(a 欠 b 合計), ba, apay(a 還 b), bpay, net:{from,to,amt}|null }]
+  function pairTotals(entries) {
+    var m = {};
+    function get(x, y) { var a = x < y ? x : y, b = x < y ? y : x, k = a + "|" + b; if (!m[k]) m[k] = { a: a, b: b, ab: 0, ba: 0, apay: 0, bpay: 0 }; return m[k]; }
+    entries.forEach(function (e) {
+      if (e.del) return;
+      if (e.kind === "pay") { var q = get(e.payer, e.to[0]); if (e.payer === q.a) q.apay += e.amt; else q.bpay += e.amt; return; }
+      var sh = splitShares(e.amt, e.to, e.payer);
+      Object.keys(sh).forEach(function (u) {
+        if (u === e.payer || !sh[u]) return;
+        var p = get(u, e.payer); if (u === p.a) p.ab += sh[u]; else p.ba += sh[u];
+      });
+    });
+    return Object.keys(m).sort().map(function (k) {
+      var p = m[k], v = p.ab - p.apay - (p.ba - p.bpay);
+      p.net = v > 0 ? { from: p.a, to: p.b, amt: v } : v < 0 ? { from: p.b, to: p.a, amt: -v } : null;
+      return p;
+    });
+  }
+
   // 某人在一筆帳裡「自己花掉」的錢（算進自己的支出用）。還款不算。
   function myShare(e, uid) {
     if (e.del || e.kind !== "exp" || e.to.indexOf(uid) < 0) return 0;
@@ -164,7 +184,7 @@ var LG = (function () {
     "・群組名 宿舍飯錢 → 幫這本帳取名字\n" +
     "・私訊我「連動碼」→ 在記帳 App 裡看帳、記帳";
 
-  return { parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, myShare: myShare,
+  return { parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
     migrateLegacy: migrateLegacy, buildEntry: buildEntry, describe: describe, amountOf: amountOf, HELP: HELP };
 })();
 if (typeof module !== "undefined") module.exports = LG;
@@ -347,6 +367,19 @@ function linkFor_(db, uid, renew) {
   return APP_URL + "#link=" + encodeURIComponent(url) + "~" + key;
 }
 
+// 「查詢」用：每兩個人從以前到現在各欠多少、還了多少、相抵後誰欠誰
+function totalsText_(db, gid) {
+  var ps = LG.pairTotals(db.entries.filter(function (e) { return e.g === gid; }));
+  if (!ps.length) return "目前還沒有帳";
+  return ps.map(function (p) {
+    var A = nameOf_(db, p.a), B = nameOf_(db, p.b);
+    var lines = [A + " ↔ " + B, "・" + A + " 欠 " + B + " 合計 " + p.ab, "・" + B + " 欠 " + A + " 合計 " + p.ba];
+    if (p.apay || p.bpay) lines.push("・已還：" + A + " 還 " + p.apay + "、" + B + " 還 " + p.bpay);
+    lines.push(p.net ? "➜ 相抵後：" + nameOf_(db, p.net.from) + " 欠 " + nameOf_(db, p.net.to) + " " + p.net.amt + " 元" : "➜ 相抵後：兩清");
+    return lines.join("\n");
+  }).join("\n\n");
+}
+
 var ERR = { two: "一則訊息只能有一個金額喔", amt: "金額要是正整數（例如 120）", noamt: "要寫金額，例如：還 500", noitem: "要寫項目，例如：午餐 120" };
 
 function handleEvent_(ev) {
@@ -395,7 +428,7 @@ function handleEvent_(ev) {
   if (p.cmd === "claim") return reply_(tk, "沒有舊帳可以搬。");
   if (p.cmd === "query") {
     var gname = (groupOf_(db, gid) || {}).name;
-    return reply_(tk, "【" + (gname || "這個群組") + "】\n" + balanceText_(db, gid));
+    return reply_(tk, "【" + (gname || "這個群組") + "】從以前到現在\n\n" + totalsText_(db, gid));
   }
   if (p.cmd === "rename") {
     var gg = groupOf_(db, gid); gg.name = p.name; db.sh.g.getRange(gg.row, 2).setValue(p.name);
