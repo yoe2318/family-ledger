@@ -26,7 +26,7 @@ const ctx = { console: { log() {}, warn() {}, error: (e) => console.log("ERR", e
   Utilities: { getUuid: () => Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2) + "-abc" } };
 vm.createContext(ctx);
 const src = readFileSync(new URL("../gas/logic.js", import.meta.url), "utf8") + "\n" + readFileSync(new URL("../gas/Code.js", import.meta.url), "utf8");
-vm.runInContext(src + ";this.LG=LG; this.setTest=function(t){TEST=t;}; this.handle=handleEvent_; this.api=api_; this.load=load_;", ctx);
+vm.runInContext(src + ";this.LG=LG; this.setTest=function(t){TEST=t;}; this.handle=handleEvent_; this.post=doPost; this.api=api_; this.load=load_;", ctx);
 const T = { ss, replies: [], names: { U1: "李宸yo", U2: "劉芳慈", U3: "小明", U4: "阿華" }, counts: { G1: 2, G2: 3 } };
 ctx.setTest(T);
 const say = (uid, text, gid) => { T.replies = []; ctx.handle({ type: "message", replyToken: "t", source: gid ? { type: "group", groupId: gid, userId: uid } : { type: "user", userId: uid }, message: { type: "text", text } }); return T.replies.join("\n"); };
@@ -93,6 +93,14 @@ r = say("U4", "午餐 100"); ok(r.includes("群組"), "私訊記帳要去群組"
 // 6. 機器人被邀進新群組
 T.replies = []; ctx.handle({ type: "join", replyToken: "t", source: { type: "group", groupId: "G3" } });
 ok(T.replies[0].includes("分帳本") && rows("群組").some((x) => x[0] === "G3"), "加入群組會打招呼");
+
+// 7. 假的 LINE 訊息（destination 不對）不處理
+const before = rows("明細v2").length;
+const ev = (dest) => ({ postData: { contents: JSON.stringify({ destination: dest, events: [{ type: "message", replyToken: "t", source: { type: "group", groupId: "G1", userId: "U1" }, message: { type: "text", text: "假帳 999" } }] }) } });
+ctx.post(ev("Uhacker")); ok(rows("明細v2").length === before, "destination 不對：不記");
+ctx.post({ postData: { contents: JSON.stringify({ events: [{ type: "message", replyToken: "t", source: { type: "group", groupId: "G1", userId: "U1" }, message: { type: "text", text: "假帳 999" } }] }) } });
+ok(rows("明細v2").length === before, "沒有 destination：不記");
+ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器人訊息：記");
 
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

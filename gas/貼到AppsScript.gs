@@ -211,6 +211,9 @@ function doPost(e) {
   var body = {};
   try { body = JSON.parse((e && e.postData && e.postData.contents) || "{}"); } catch (err) { return json_({ ok: false, err: "bad json" }); }
   if (body.events) {                       // LINE 來的
+    // 網址是公開的：只收 destination＝我們機器人的訊息（LINE 每次都會帶，外人不知道這個 ID），假的直接丟掉
+    var bu = botUserId_();                 // 查不到（LINE 暫時連不上）就先不擋，免得機器人整個不回
+    if (bu && body.destination !== bu) return ContentService.createTextOutput("ok");
     for (var i = 0; i < body.events.length; i++) {
       try { withLock_(function () { handleEvent_(body.events[i]); }); } catch (err) { console.error(err && err.stack || err); }
     }
@@ -378,6 +381,15 @@ function linkFor_(db, uid, renew) {
   return { key: key, show: key.slice(0, 4) + "-" + key.slice(4), url: APP_URL + "?openExternalBrowser=1#link=" + encodeURIComponent(url) + "~" + key };
 }
 // 機器人的 LINE ID（例如 @123abcd），給 App 做「加機器人好友」的按鈕；查一次存在指令碼屬性
+function botUserId_() {
+  if (TEST) return "Ubot";
+  var pr = PropertiesService.getScriptProperties(), v = pr.getProperty("BOT_UID");
+  if (v) return v;
+  var info = lineApi_("info");
+  v = (info && info.userId) || "";
+  if (v) pr.setProperty("BOT_UID", v);
+  return v;
+}
 function botId_() {
   if (TEST) return "@testbot";
   var pr = PropertiesService.getScriptProperties(), v = pr.getProperty("BOT_ID");
