@@ -356,6 +356,9 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .chip.add { border-style: dashed; color: var(--accent-ink); }
 /* 月曆左右滑：左右交給 App，上下照常捲動 */
 main.swipe-x { touch-action: pan-y; }
+/* 滑進來的動畫不能讓畫面變寬（變寬的話手機會縮放，下面的導覽列就被切到）；上面年月那條也可以左右滑 */
+html, .app { overflow-x: clip; }
+.app .top { touch-action: pan-y; }
 body { overscroll-behavior-x: none; }
 /* 點年月 */
 .mpick { border: 0; background: none; color: inherit; font: inherit; padding: 2px 4px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; }

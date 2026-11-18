@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.2";
+const VERSION = "1.5.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1860,12 +1860,22 @@ function buildShell() {
   main.addEventListener("pointercancel", () => { wd = null; render(); });
   // 月曆左右滑換月份（只看水平方向明顯的滑動，上下捲動不受影響）
   // 月曆左右滑換月份：在手指移動時就判斷（有些手機把橫向滑動拿去做自己的手勢，只送 touchcancel、不送 touchend）
+  // 記帳、統計頁：在上面的年月那條左右滑換一期（不能滑到這期之後）
   let sw = null;
-  const swStart = (x, y, t) => { sw = ui.tab === "cal" && !t.closest("input, select, .sheet") ? { x, y, done: false } : null; };
+  const swStart = (x, y, t) => {
+    if (t.closest("input, select, .sheet")) { sw = null; return; }
+    const kind = ui.tab === "cal" ? "cal" : t.closest(".top")?.querySelector("[data-per]") ? "per" : null;
+    sw = kind ? { x, y, kind, done: false } : null;
+  };
   const swMove = (x, y) => {
-    if (!sw || sw.done || ui.tab !== "cal") return;
+    if (!sw || sw.done) return;
     const dx = x - sw.x, dy = y - sw.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3) { sw.done = true; calShift(dx < 0 ? 1 : -1); }
+    if (!(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3)) return;
+    sw.done = true;
+    const n = dx < 0 ? 1 : -1;
+    if (sw.kind === "cal") { if (ui.tab === "cal") calShift(n); return; }
+    if (n > 0 && ui.period >= periodNow()) return toast("已經是這一期了");
+    ui.period = C.addMonths(ui.period, n); ui.openCat = null; render();
   };
   main.addEventListener("touchstart", (e) => { if (e.touches.length === 1) swStart(e.touches[0].clientX, e.touches[0].clientY, e.target); else sw = null; }, { passive: true });
   main.addEventListener("touchmove", (e) => { if (e.touches.length === 1) swMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
