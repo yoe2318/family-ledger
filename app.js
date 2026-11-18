@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.2";
+const VERSION = "1.4.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -115,7 +115,7 @@ function applyTheme() {
 darkMQ.addEventListener?.("change", applyTheme);
 
 // ================================================================ 畫面狀態、上一頁
-const ui = { tab: "home", period: "", search: null, statType: "out", openCat: null, calMonth: "", calDay: "", more: null, catType: "out", fg: null };
+const ui = { wsel: null, tab: "home", period: "", search: null, statType: "out", openCat: null, calMonth: "", calDay: "", more: null, catType: "out", fg: null };
 const sheets = [];
 let skipPop = 0;
 window.addEventListener("popstate", (e) => {
@@ -126,7 +126,7 @@ window.addEventListener("popstate", (e) => {
   render();
 });
 function go(tab, more = null) {
-  ui.tab = tab; ui.more = more; ui.search = null; ui.openCat = null; ui.fg = null;
+  ui.tab = tab; ui.more = more; ui.search = null; ui.openCat = null; ui.fg = null; ui.wsel = null;
   history.pushState({ tab, more }, "");
   render(); window.scrollTo(0, 0);
 }
@@ -1407,19 +1407,66 @@ function pgShortcuts() {
 
 // ---- 扇形選單
 function pgWheel() {
-  // 勾的照扇形裡的順序排在上面，旁邊有 ↑↓；沒勾的排在下面
-  const sec = (kind, all, cur, label = (x) => x, extra = () => "") => {
-    const on = cur.filter((x) => all.includes(x)), off = all.filter((x) => !on.includes(x));
-    return on.map((x, i) => `<div class="wrow"><label class="check"><input type="checkbox" data-w${kind}="${esc(x)}" checked> ${esc(label(x))}${extra(x)} <span class="small muted">（第 ${i + 1} 格）</span></label>
-        <button class="icon-btn" data-wmv="${kind}" data-wn="${esc(x)}" data-wd="-1" aria-label="往前"${i ? "" : " disabled"}>${ico("arrow-up")}</button><button class="icon-btn" data-wmv="${kind}" data-wn="${esc(x)}" data-wd="1" aria-label="往後"${i < on.length - 1 ? "" : " disabled"}>${ico("arrow-down")}</button></div>`).join("")
-      + off.map((x) => `<div class="wrow"><label class="check"><input type="checkbox" data-w${kind}="${esc(x)}"> ${esc(label(x))}${extra(x)}</label></div>`).join("");
-  };
-  const fk = (m) => m.g + "|" + m.uid, people = friendOn() ? friendPeople() : [], pm = (k) => people.find((m) => fk(m) === k);
-  return `${subHead("扇形選單")}<p class="small muted">按住下面的 ＋ 往上劃：先經過內圈選付款方式（不劃過就用上次的），停在外圈的分類放手，再打金額就記好了。勾的項目可以用 ↑↓ 調整在扇形裡的順序（第 1 格在最左邊）。</p>
-    <div class="sec-h"><span>內圈：付款方式（最多 ${C.WHEEL_MAX.pays} 個）</span></div>${sec("pay", data.pays, data.wheel.pays)}
-    ${people.length ? `<div class="sec-h"><span>內圈：朋友（最多 ${FRIEND_WHEEL_MAX} 個，排在付款方式後面）</span></div><p class="small muted" style="margin:0">劃過「某人付」再停在分類放手，就記成「我欠那個人」，會同步到 LINE 群組。</p>
-      ${sec("fr", people.map(fk), wheelFriends().map(fk), (k) => fname(pm(k).uid, pm(k).g) + "付", (k) => ` <span class="small muted">（${esc(fr().groups.find((g) => g.id === pm(k).g)?.name || "")}）</span>`)}` : ""}
-    <div class="sec-h"><span>外圈：支出分類（最多 ${C.WHEEL_MAX.cats} 個）</span></div>${sec("cat", data.cats.out.map((c) => c.name), data.wheel.cats)}`;
+  // 直接在扇形上改：拖一格到另一格（或點一格再點一格）＝交換；點一格可以拿掉；下面點一下＝加到最後一格
+  const fk = (m) => m.g + "|" + m.uid, people = friendOn() ? friendPeople() : [];
+  const pays = data.wheel.pays.filter((p) => data.pays.includes(p)), frs = wheelFriends();
+  const cats = data.wheel.cats.filter((c) => catOf("out", c));
+  const inner = [...pays.map((p) => ({ key: "p:" + p, label: p })), ...frs.map((m) => ({ key: "f:" + fk(m), label: fname(m.uid, m.g) + "付", fr: true }))];
+  const outer = cats.map((c) => ({ key: "c:" + c, label: c, icon: catIcon("out", c) }));
+  const k = Math.min(1, (Math.min(innerWidth, 900) - 40) / (2 * (C.WHEEL_R.r2 + 6)));
+  const R = { r0: C.WHEEL_R.r0 * k, r1: C.WHEEL_R.r1 * k, r2: C.WHEEL_R.r2 * k };
+  const pad = 6, W = 2 * (R.r2 + pad), H = R.r2 + pad + R.r0 + pad, cx = W / 2, cy = R.r2 + pad, sel = ui.wsel;
+  let svg = "";
+  inner.forEach((it, i) => {
+    const [a0, a1] = C.wheelSeg(i, inner.length), [tx, ty] = polar(cx, cy, (R.r0 + R.r1) / 2 + 2, (a0 + a1) / 2);
+    svg += `<path class="sg${it.fr ? " fr" : ""}${sel === it.key ? " hot" : ""}" data-ew="${esc(it.key)}" d="${annulus(cx, cy, R.r0 + 4, R.r1 - 2, a0 - 0.6, a1 + 0.6)}"/><g class="${sel === it.key ? "hot-t" : ""}"><text x="${tx}" y="${ty}">${esc(it.label)}</text></g>`;
+  });
+  outer.forEach((it, i) => {
+    const [a0, a1] = C.wheelSeg(i, outer.length), [tx, ty] = polar(cx, cy, (R.r1 + R.r2) / 2 + 2, (a0 + a1) / 2), sz = 18 * Math.max(0.8, k);
+    svg += `<path class="sg${sel === it.key ? " hot" : ""}" data-ew="${esc(it.key)}" d="${annulus(cx, cy, R.r1 + 2, R.r2, a0 - 0.4, a1 + 0.4)}"/>
+      <g class="${sel === it.key ? "hot-t" : ""}"><svg class="wico" x="${tx - sz / 2}" y="${ty - sz - 1}" width="${sz}" height="${sz}" viewBox="0 0 24 24">${ICONS[it.icon] || ICONS.ellipsis}</svg><text x="${tx}" y="${ty + 10}">${esc(it.label)}</text></g>`;
+  });
+  svg += `<circle class="x" cx="${cx}" cy="${cy}" r="${R.r0 - 4}"/>`;
+  const selItem = [...inner, ...outer].find((x) => x.key === sel);
+  const addP = data.pays.filter((p) => !pays.includes(p)), addF = people.filter((m) => !frs.some((x) => fk(x) === fk(m))), addC = data.cats.out.map((c) => c.name).filter((c) => !cats.includes(c));
+  const chip = (key, label) => `<button class="chip add" data-wadd="${esc(key)}">${ico("plus")}${esc(label)}</button>`;
+  return `${subHead("扇形選單")}
+    <p class="small muted">這就是長按 ＋ 時的扇形。<b>按住一格拖到另一格</b>就交換位置（或點一格、再點另一格）；點一格可以拿掉。</p>
+    <div class="wed"><svg class="wheel-ed" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg></div>
+    ${selItem ? `<div class="wed-bar"><span>已選「${esc(selItem.label)}」：再點同一圈的另一格就交換</span><button class="btn small danger" data-wrm="${esc(sel)}">拿掉</button><button class="btn small" data-wcancel>取消</button></div>` : ""}
+    <div class="sec-h"><span>內圈（付款方式最多 ${C.WHEEL_MAX.pays} 個${people.length ? `、朋友最多 ${FRIEND_WHEEL_MAX} 個，朋友排在付款方式後面` : ""}）</span></div>
+    ${addP.length || addF.length ? `<div class="pick-row">${addP.map((p) => chip("p:" + p, p)).join("")}${addF.map((m) => chip("f:" + fk(m), fname(m.uid, m.g) + "付")).join("")}</div>` : `<p class="small muted" style="margin:0">全部都放進去了</p>`}
+    <div class="sec-h"><span>外圈：支出分類（最多 ${C.WHEEL_MAX.cats} 個）</span></div>
+    ${addC.length ? `<div class="pick-row">${addC.map((c) => chip("c:" + c, c)).join("")}</div>` : `<p class="small muted" style="margin:0">全部都放進去了</p>`}
+    ${people.length ? `<p class="small muted">內圈的「某人付」：劃過再停在分類放手，就記成「我欠那個人」，會同步到 LINE 群組。</p>` : ""}`;
+}
+// 扇形編輯：key 是 "p:付款方式"、"f:群組|uid"、"c:分類"
+const wkind = (key) => key.slice(0, 1), wname = (key) => key.slice(2);
+function wheelEdit(op, a, b) {
+  const kind = wkind(a);
+  if (kind === "f") {
+    const cur = wheelFriends().map((m) => m.g + "|" + m.uid);
+    let next = cur;
+    if (op === "swap") next = C.swapIn(cur, wname(a), wname(b));
+    if (op === "rm") next = cur.filter((x) => x !== wname(a));
+    if (op === "add") { if (cur.length >= FRIEND_WHEEL_MAX) return toast(`朋友最多 ${FRIEND_WHEEL_MAX} 個，先拿掉一個`); next = [...cur, wname(a)]; }
+    lsSet("ledger-friend-wheel", next); return render();
+  }
+  const key = kind === "p" ? "pays" : "cats", cur = data.wheel[key], max = C.WHEEL_MAX[key];
+  let next = cur;
+  if (op === "swap") next = C.swapIn(cur, wname(a), wname(b));
+  if (op === "rm") next = cur.filter((x) => x !== wname(a));
+  if (op === "add") { if (cur.length >= max) return toast(`最多 ${max} 個，先拿掉一個`); next = [...cur, wname(a)]; }
+  commit({ ...data, wheel: { ...data.wheel, [key]: next } });
+}
+// 點一格：沒選＝選它；已選同一圈另一格＝交換；同一格＝取消
+function wheelTap(key) {
+  const s = ui.wsel;
+  if (!s) { ui.wsel = key; return render(); }
+  ui.wsel = null;
+  if (s !== key && wkind(s) === wkind(key)) return wheelEdit("swap", s, key);
+  if (s !== key && wkind(s) !== wkind(key) && (wkind(s) === "c") === (wkind(key) === "c")) toast("付款方式和朋友不能互換：朋友固定排在付款方式後面");
+  render();
 }
 
 // ---- 主題
@@ -1527,6 +1574,33 @@ function buildShell() {
   main.addEventListener("input", onInput);
   main.addEventListener("compositionend", (e) => onInput({ target: e.target, isComposing: false }));
   main.addEventListener("change", onChange);
+  // 扇形編輯：按住一格拖到另一格放開＝交換
+  let wd = null;
+  main.addEventListener("pointerdown", (e) => {
+    const g = e.target.closest("[data-ew]");
+    if (!g) return;
+    e.preventDefault();
+    wd = { key: g.dataset.ew, x: e.clientX, y: e.clientY, moved: false };
+  });
+  main.addEventListener("pointermove", (e) => {
+    if (!wd) return;
+    if (Math.hypot(e.clientX - wd.x, e.clientY - wd.y) > 8) wd.moved = true;
+    if (!wd.moved) return;
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ew]");
+    main.querySelectorAll(".wheel-ed .sg").forEach((p) => { p.classList.toggle("hot", p.dataset.ew === wd.key); p.classList.toggle("picked", !!over && p === over && over.dataset.ew !== wd.key); });
+  });
+  const wend = (e) => {
+    if (!wd) return;
+    const d0 = wd; wd = null;
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-ew]");
+    if (!d0.moved) return wheelTap(d0.key);
+    ui.wsel = null;
+    if (over && over.dataset.ew !== d0.key && wkind(over.dataset.ew) === wkind(d0.key)) return wheelEdit("swap", d0.key, over.dataset.ew);
+    if (over && over.dataset.ew !== d0.key) toast(wkind(d0.key) === "c" || wkind(over.dataset.ew) === "c" ? "內圈和外圈不能互換" : "付款方式和朋友不能互換：朋友固定排在付款方式後面");
+    render();
+  };
+  main.addEventListener("pointerup", wend);
+  main.addEventListener("pointercancel", () => { wd = null; render(); });
   // 月曆左右滑換月份（只看水平方向明顯的滑動，上下捲動不受影響）
   let sw = null;
   main.addEventListener("touchstart", (e) => { sw = ui.tab === "cal" && e.touches.length === 1 && !e.target.closest("input, select") ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
@@ -1553,12 +1627,9 @@ async function onClick(e) {
   if (d.acct) return acctForm(data.accounts.find((x) => x.id === d.acct));
   if (d.newacct !== undefined) return acctForm();
   if (d.preset !== undefined) { if (await sure("快速設定帳戶？", "建立「郵局、錢包、信用卡」三個帳戶：現金從錢包扣、信用卡記在卡上、其他付款方式從郵局扣，收入存進郵局。名稱和金額之後都可以改。", "設定")) { commit(C.presetAccounts(data)); toast("設好了，點帳戶填現在有多少錢"); } return; }
-  if (d.wmv) {
-    const dir = +d.wd, name = d.wn;
-    if (d.wmv === "fr") lsSet("ledger-friend-wheel", C.moveIn(wheelFriends().map((m) => m.g + "|" + m.uid), name, dir));
-    else { const key = d.wmv === "pay" ? "pays" : "cats"; data = { ...data, wheel: { ...data.wheel, [key]: C.moveIn(data.wheel[key], name, dir) } }; }
-    return commit(data);
-  }
+  if (d.wadd) { ui.wsel = null; return wheelEdit("add", d.wadd); }
+  if (d.wrm) { ui.wsel = null; return wheelEdit("rm", d.wrm); }
+  if (d.wcancel !== undefined) { ui.wsel = null; return render(); }
   if (d.delsc) { if (await sure("刪除這個捷徑？", "", "刪除", "danger")) commit({ ...data, shortcuts: data.shortcuts.filter((x) => x.id !== d.delsc) }); return; }
   if (d.sc) { const sc = data.shortcuts.find((x) => x.id === d.sc); if (sc) useShortcut(sc); return; }
   if (d.goto) return go("more", d.goto);

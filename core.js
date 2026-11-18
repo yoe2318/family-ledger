@@ -603,3 +603,10 @@ export function moveIn(list, name, dir) {
   [a[i], a[j]] = [a[j], a[i]];
   return a;
 }
+// 清單裡兩個交換位置（扇形編輯：拖一格到另一格）
+export function swapIn(list, a, b) {
+  const x = [...list], i = x.indexOf(a), j = x.indexOf(b);
+  if (i < 0 || j < 0) return x;
+  [x[i], x[j]] = [x[j], x[i]];
+  return x;
+}

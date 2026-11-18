@@ -336,3 +336,18 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .line.s { grid-template-columns: 64px 1fr 1fr 56px 28px; }
 .line select { min-width: 0; padding: 8px 2px; font-size: 14px; }
 .lab .acct-hint { display: block; margin: 2px 0 0; font-size: var(--fs-small); color: var(--muted); font-weight: 400; }
+/* 扇形編輯 */
+.wed { display: flex; justify-content: center; margin: 8px 0; }
+.wheel-ed { touch-action: none; user-select: none; -webkit-user-select: none; overflow: visible; }
+.wheel-ed .sg { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; cursor: grab; }
+.wheel-ed .sg.fr:not(.hot):not(.picked) { fill: var(--info-bg); }
+.wheel-ed .sg.hot { fill: var(--accent); stroke: var(--accent-strong); }
+.wheel-ed .sg.picked { fill: var(--accent-soft); }
+.wheel-ed text { font-size: 12px; text-anchor: middle; dominant-baseline: middle; fill: var(--ink); pointer-events: none; }
+.wheel-ed .wico { color: var(--ink); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.wheel-ed .hot-t text { fill: var(--on-accent); }
+.wheel-ed .hot-t .wico { color: var(--on-accent); }
+.wheel-ed .x { fill: var(--surface-2); stroke: var(--line); }
+.wed-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--r-sm); background: var(--accent-soft); font-size: 14px; }
+.wed-bar span { flex: 1; min-width: 160px; }
+.chip.add .ico { width: 14px; height: 14px; }
