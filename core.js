@@ -110,7 +110,20 @@ function groupSum(list, key) {
   return [...sum].map(([name, amt]) => ({ name, amt, share: total ? amt / total : 0 })).sort((a, b) => b.amt - a.amt);
 }
 export const byCategory = (items, type) => groupSum(items.filter((x) => x.type === type), "cat");
-export const bySub = (items, type, cat) => groupSum(items.filter((x) => x.type === type && x.cat === cat), "sub");
+// 細項統計：沒填明細＝整筆算在 x.sub（多選時是「早餐＋午餐」這個組合）；明細有選細項的列，照各列金額分過去，剩下的算 x.sub
+export function bySub(items, type, cat) {
+  const parts = [];
+  for (const x of items) {
+    if (x.type !== type || x.cat !== cat) continue;
+    const ls = (x.lines || []).filter((l) => l.sub && l.amt > 0);
+    let rest = x.amt;
+    for (const l of ls) { const a = Math.min(l.amt, rest); if (a > 0) { parts.push({ sub: l.sub, amt: a }); rest -= a; } }
+    if (rest > 0) parts.push({ sub: x.sub, amt: rest });
+  }
+  return groupSum(parts, "sub");
+}
+// 細項多選：存成「早餐＋午餐」
+export const subParts = (sub) => String(sub || "").split("＋").filter(Boolean);
 export const byPay = (items, type = "out") => groupSum(items.filter((x) => x.type === type), "pay");
 
 // 最近 n 期（含 key）每期的支出、收入，舊到新
@@ -571,7 +584,7 @@ export function parseCode(text) {
 // 每列 { shop, what, amt }；三格都空的列丟掉；金額只收正整數（沒寫＝0）
 export function cleanLines(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.map((l) => ({ shop: String(l?.shop ?? "").trim().slice(0, 20), what: String(l?.what ?? "").trim().slice(0, 30), amt: Math.max(0, Math.round(Number(l?.amt) || 0)) }))
+  return raw.map((l) => ({ shop: String(l?.shop ?? "").trim().slice(0, 20), what: String(l?.what ?? "").trim().slice(0, 30), amt: Math.max(0, Math.round(Number(l?.amt) || 0)), ...(String(l?.sub ?? "").trim() ? { sub: String(l.sub).trim().slice(0, 12) } : {}) }))
     .filter((l) => l.shop || l.what || l.amt).slice(0, 10);
 }
 export const linesTotal = (lines) => cleanLines(lines).reduce((a, l) => a + l.amt, 0);

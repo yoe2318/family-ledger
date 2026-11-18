@@ -324,7 +324,7 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .lines { margin: 4px 0 8px; }
 .line { display: grid; grid-template-columns: 1fr 1.3fr 64px 32px; gap: 4px; align-items: center; margin-bottom: 4px; }
 .line input { min-width: 0; padding: 8px; font-size: 15px; }
-.line .la { font-family: var(--font-mono); text-align: right; }
+.line .la { font-family: var(--font-mono); }
 .line .icon-btn { width: 32px; height: 32px; color: var(--muted); }
 /* 扇形設定的順序按鈕 */
 .wrow { display: flex; align-items: center; gap: 4px; }
@@ -333,3 +333,6 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .wrow .icon-btn:disabled { opacity: .3; }
 .pick-row.fee { align-items: center; flex-wrap: wrap; }
 .pick-row.fee input { width: 96px; padding: 6px 8px; }
+.line.s { grid-template-columns: 64px 1fr 1fr 56px 28px; }
+.line select { min-width: 0; padding: 8px 2px; font-size: 14px; }
+.lab .acct-hint { display: block; margin: 2px 0 0; font-size: var(--fs-small); color: var(--muted); font-weight: 400; }

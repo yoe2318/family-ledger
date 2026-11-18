@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -136,11 +136,19 @@ function openSheet(build) {
   const back = document.createElement("div");
   back.className = "sheet-back";
   back.innerHTML = '<div class="sheet" role="dialog" aria-modal="true"></div>';
-  const el = back.firstChild;
+  let el = back.firstChild;
   document.body.append(back);
   history.pushState({ ...(history.state || {}), sheet: true }, "");
   const s = {
     el,
+    // 換成別的內容（例如從「支出」切到「移動」）：換一個新的 .sheet，舊的事件一起丟掉
+    swap(build) {
+      const n = document.createElement("div");
+      n.className = "sheet"; n.setAttribute("role", "dialog"); n.setAttribute("aria-modal", "true");
+      el.replaceWith(n); el = s.el = n; s.onClose = null;
+      build(n, s);
+      return s;
+    },
     close(fromPop = false) {
       back.remove();
       if (!fromPop) { const i = sheets.indexOf(s); if (i >= 0) sheets.splice(i, 1); skipPop++; history.back(); }
@@ -271,8 +279,9 @@ function bindKeypad(el, st, onSave) {
 // ================================================================ 備註明細表（店家｜吃了什麼｜金額）
 // st.lines = [{ shop, what, amt }]；有填金額的話，總金額＝各列加總（鍵盤上方的大數字跟著變）
 const blankLine = () => ({ shop: "", what: "", amt: "" });
-function linesHTML(st) {
-  return `<div class="lines">${st.lines.map((l, i) => `<div class="line">
+function linesHTML(st, subs = []) {
+  const subSel = (l, i) => (subs.length ? `<select data-ln="${i}" data-lk="sub" aria-label="細項"><option value="">細項</option>${subs.map((x) => `<option${x === l.sub ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>` : "");
+  return `<div class="lines">${st.lines.map((l, i) => `<div class="line${subs.length ? " s" : ""}">${subSel(l, i)}
       <input data-ln="${i}" data-lk="shop" value="${esc(l.shop)}" placeholder="店家" maxlength="20" list="shops-dl" aria-label="店家">
       <input data-ln="${i}" data-lk="what" value="${esc(l.what)}" placeholder="吃了什麼" maxlength="30" aria-label="吃了什麼">
       <input data-ln="${i}" data-lk="amt" value="${esc(l.amt)}" placeholder="金額" inputmode="numeric" class="la" aria-label="金額">
@@ -289,6 +298,7 @@ function bindLines(el, st, draw) {
     if (tot > 0) { st.expr = String(tot); st.fromLines = true; } else if (st.fromLines) { st.expr = ""; st.fromLines = false; }
     el._kpUpd?.();
   };
+  el.addEventListener("change", (e) => { const i = e.target.dataset.ln; if (i !== undefined && e.target.dataset.lk === "sub" && st.lines[+i]) st.lines[+i].sub = e.target.value; });
   el.addEventListener("input", (e) => {
     const i = e.target.dataset.ln;
     if (i === undefined || !st.lines[+i]) return;
@@ -305,6 +315,20 @@ function bindLines(el, st, draw) {
 const linesOf = (st) => C.cleanLines(st.lines);
 
 // ================================================================ 記一筆
+// 上面的分頁：支出｜收入｜移動｜朋友帳（移動要有兩個帳戶、朋友帳要有連動才出現），在同一個面板裡切換
+function recTabs(cur) {
+  const tabs = [["out", "支出"], ["in", "收入"], ...(data.accounts.length > 1 ? [["move", "移動"]] : []), ...(friendOn() ? [["friend", "朋友帳"]] : [])];
+  return `<div class="seg" role="tablist">${tabs.map(([k, v]) => `<button data-rt="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("")}</div>`;
+}
+function switchRec(s, rt) {
+  if (rt === "out" || rt === "in") return openForm(null, { type: rt }, s);
+  if (rt === "move") return moveForm(null, {}, s);
+  if (rt === "friend") return friendForm("exp", null, s);
+}
+const sheetFor = (into) => (into ? (b) => into.swap(b) : openSheet);
+// 細項多選的小按鈕（存成「早餐＋午餐」）
+const subChips = (subs, cur) => (subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${C.subParts(cur).includes(x) ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : "");
+const toggleSub = (cur, x, subs) => { const on = C.subParts(cur); return subs.filter((y) => (y === x ? !on.includes(x) : on.includes(y))).join("＋"); };
 function addItem(item, msg) {
   if (!item.acct && !String(item.id).startsWith("fr-")) item = { ...item, acct: C.acctFor(data, item.type, item.pay) };   // 從哪個帳戶扣：照當下設定，之後改設定不影響這筆
   commit({ ...data, items: [...data.items, item], prefs: { ...data.prefs, lastPay: (item.type === "out" && item.pay) || data.prefs.lastPay } });
@@ -312,27 +336,27 @@ function addItem(item, msg) {
 }
 
 // 完整的表單：新增或編輯（item）
-function openForm(item = null, preset = {}) {
+function openForm(item = null, preset = {}, into = null) {
   const f = item ? { ...item, expr: String(item.amt) } : { type: "out", cat: "", sub: "", pay: data.prefs.lastPay, date: today(), note: "", expr: "", ...preset };
   if (!f.cat) f.cat = data.cats[f.type][0]?.name || "其他";
   if (f.type === "in" && !f.acct) f.acct = C.acctFor(data, "in", "");
   f.lines = (item?.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" }));
   let makeShortcut = false;
-  openSheet((el, s) => {
+  sheetFor(into)((el, s) => {
+    el._kpHidden = true;               // 完整表單：鍵盤先收著，點金額或「打開鍵盤」才出來
     const draw = () => {
       const subs = catOf(f.type, f.cat)?.subs || [];
       el.innerHTML = `
-        <div class="sheet-h"><div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button>${!item && data.accounts.length > 1 ? `<button data-type="move">移動</button>` : ""}${!item && friendOn() ? `<button data-type="friend">朋友帳</button>` : ""}</div>
+        <div class="sheet-h">${item ? `<div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button></div>` : recTabs(f.type)}
           <h3></h3>${item ? `<button class="btn text danger" data-del>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <div class="amt-disp"></div>
         <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}</div>
-        ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === f.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        ${subChips(subs, f.sub)}
         ${f.type === "in" && data.accounts.length > 1 ? `<div class="field"><span class="lab">存入</span><div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.type !== "card").map((a) => `<button class="chip${a.id === f.acct ? " on" : ""}" data-iacct="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div></div>` : ""}
-        ${f.type === "out" && data.accounts.length > 1 ? `<p class="small muted acct-hint">從「${esc(aName(C.acctFor(data, "out", f.pay)))}」扣</p>` : ""}
-        ${f.type === "out" ? `<div class="field"><span class="lab">付款方式</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
+        ${f.type === "out" ? `<div class="field"><span class="lab">付款方式${data.accounts.length > 1 ? `<small class="acct-hint">從${esc(aName(C.acctFor(data, "out", f.pay)))}扣</small>` : ""}</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
         <div class="field"><label for="f-date">日期</label><input id="f-date" type="date" value="${esc(f.date)}" max="2100-12-31"></div>
+        ${linesHTML(f, subs)}
         <div class="field"><label for="f-note">備註</label><input id="f-note" value="${esc(f.note)}" maxlength="200" placeholder="例如：全聯、和朋友聚餐"></div>
-        ${linesHTML(f)}
         ${item ? "" : `<label class="check"><input type="checkbox" data-sc${makeShortcut ? " checked" : ""}> 存成常用捷徑（首頁一點就能再記一次）</label>`}
         ${keypadHTML()}`;
       bindKeypad(el, f, (amt) => {
@@ -349,15 +373,18 @@ function openForm(item = null, preset = {}) {
       const t = e.target.closest("button, input[type=checkbox]");
       if (!t) return;
       if (t.dataset.close !== undefined) return s.close();
-      if (t.dataset.type === "friend") { s.close(); setTimeout(() => friendForm("exp", null), 80); return; }
-      if (t.dataset.type === "move") { s.close(); setTimeout(() => moveForm(), 80); return; }
+      if (t.dataset.rt === "move" || t.dataset.rt === "friend") return switchRec(s, t.dataset.rt);
+      if (t.dataset.rt) {             // 支出／收入：同一張表單裡換
+        if (t.dataset.rt !== f.type) { f.type = t.dataset.rt; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; f.acct = f.type === "in" ? C.acctFor(data, "in", "") : ""; draw(); }
+        return;
+      }
       if (t.dataset.iacct) { f.acct = t.dataset.iacct; draw(); return; }   // 等上一頁的返回處理完再開
       if (t.dataset.type) {          // 收入通常不是用「付款方式」：切到收入先空著，切回支出用上次的
         if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; f.acct = f.type === "in" ? C.acctFor(data, "in", "") : ""; draw(); }
         return;
       }
       if (t.dataset.cat) { if (f.cat !== t.dataset.cat) { f.cat = t.dataset.cat; f.sub = ""; } draw(); return; }
-      if (t.dataset.sub !== undefined) { f.sub = f.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); return; }
+      if (t.dataset.sub !== undefined) { f.sub = toggleSub(f.sub, t.dataset.sub, catOf(f.type, f.cat)?.subs || []); draw(); return; }
       if (t.dataset.pay !== undefined) { f.pay = f.pay === t.dataset.pay ? "" : t.dataset.pay; draw(); return; }
       if (t.dataset.sc !== undefined) { makeShortcut = t.checked; return; }
       if (t.dataset.del !== undefined) {
@@ -380,10 +407,10 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
     const subs = catOf(type, cat)?.subs || [];
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><h3>${esc(title || `${pay ? pay + "・" : ""}${cat}`)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
-        ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === st.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        ${subChips(subs, st.sub)}
         <div class="amt-disp"></div>
+        ${linesHTML(st, subs)}
         <div class="field"><label for="q-note">備註</label><input id="q-note" value="${esc(st.note)}" maxlength="200" placeholder="選填"></div>
-        ${linesHTML(st)}
         <div class="field"><label for="q-date">日期</label><input id="q-date" type="date" value="${esc(st.date)}"></div>
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
@@ -396,7 +423,7 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
       const t = e.target.closest("button");
       if (!t) return;
       if (t.dataset.close !== undefined) s.close();
-      if (t.dataset.sub !== undefined) { st.sub = st.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); }
+      if (t.dataset.sub !== undefined) { st.sub = toggleSub(st.sub, t.dataset.sub, subs); draw(); }
     });
     el.addEventListener("input", (e) => { if (e.target.id === "q-note") st.note = e.target.value; if (e.target.id === "q-date") st.date = e.target.value; });
     bindLines(el, st, draw);
@@ -831,7 +858,7 @@ function pgFriends() {
     <p class="small muted">LINE 群組裡打「說明」看所有指令。想和另一群朋友分帳：開一個 LINE 群組、把記帳機器人邀進去，就是一本新的分帳本。</p>`;
 }
 // 記一筆朋友帳（群組頁的按鈕、記一筆的「朋友帳」分頁都用這個）。記住上次的群組、人、方式，下次只要點項目、打金額。
-function friendForm(kind, gid0 = ui.fg) {
+function friendForm(kind, gid0 = ui.fg, into = null) {
   const F = fr(), me = F.me, last = lsGet("ledger-friend-last", {});
   const okG = (g) => F.groups.some((x) => x.id === g) && F.members.some((m) => m.g === g && m.uid !== me);
   const gid = [gid0, last.g, ...F.groups.map((g) => g.id)].find((g) => g && okG(g));
@@ -859,20 +886,21 @@ function friendForm(kind, gid0 = ui.fg) {
     const recent = [...new Set(F.entries.filter((e) => e.by === me && e.kind === "exp").sort((a, b) => b.t - a.t).map((e) => e.item))].filter((x) => !food.includes(x)).slice(0, 4);
     return [...food, ...recent];
   };
-  openSheet((el, s) => {
+  sheetFor(into)((el, s) => {
+    el._kpHidden = true;
     const draw = () => {
       const mem = F.members.filter((m) => m.g === st.g), others = mem.filter((m) => m.uid !== me);
       const modes = kind === "pay" ? [["iPay", "我還別人"], ["theyPay", "別人還我"]] : [["iOwe", "我欠別人"], ["theyOwe", "別人欠我"], ["split", "大家平分"]];
       const chips = (list, attr, on) => `<div class="pick-row" style="padding:0">${list.map((m) => `<button class="chip${on(m.uid) ? " on" : ""}" data-${attr}="${esc(m.uid)}">${esc(fname(m.uid, st.g))}</button>`).join("")}</div>`;
       const groups = F.groups.filter((g) => okG(g.id));
-      el.innerHTML = `<div class="sheet-h"><h3>${kind === "pay" ? "記還款" : "記一筆朋友帳"}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      el.innerHTML = `<div class="sheet-h">${kind === "pay" ? "<h3>記還款</h3>" : recTabs("friend")}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         ${groups.length > 1 ? `<div class="pick-row" style="padding:0 0 8px">${groups.map((g) => `<button class="chip${g.id === st.g ? " on" : ""}" data-fgp="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>` : ""}
         <div class="seg" style="margin-bottom:8px">${modes.map(([v, t]) => `<button data-fm="${v}" class="${st.mode === v ? "on" : ""}">${t}</button>`).join("")}</div>
         ${st.mode === "split" ? `<div class="field"><span class="lab">誰付的</span>${chips(mem, "fpay", (u) => u === st.payer)}</div><div class="field"><span class="lab">誰要分</span>${chips(mem, "fto", (u) => st.to.includes(u))}</div>`
           : `<div class="field"><span class="lab">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</span>${chips(others, "fwho", (u) => u === st.who)}</div>`}
         ${kind === "pay" ? "" : `<div class="pick-row" style="padding:0 0 4px">${quick().map((x) => `<button class="chip${x === st.item ? " on" : ""}" data-fq="${esc(x)}">${esc(x)}</button>`).join("")}</div>
-          <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>
-          ${linesHTML(st)}`}
+          ${linesHTML(st)}
+          <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>`}
         ${kind === "pay" ? `<p class="small muted" style="margin:0 0 4px">${(() => { const n = netWith(st.g, st.who), nm = esc(fname(st.who, st.g)); return n < 0 ? `目前你欠 ${nm} ${N(-n)}` : n > 0 ? `目前 ${nm} 欠你 ${N(n)}` : `你和 ${nm} 目前兩清`; })()}</p>` : ""}
         <div class="amt-disp"></div>
         ${keypadHTML()}`;
@@ -905,6 +933,7 @@ function friendForm(kind, gid0 = ui.fg) {
       if (!t) return;
       const d = t.dataset;
       if (d.close !== undefined) return s.close();
+      if (d.rt && d.rt !== "friend") return switchRec(s, d.rt);
       if (d.fgp) { setGroup(d.fgp); reSuggest(); draw(); }
       if (d.fm) { st.mode = d.fm; reSuggest(); draw(); }
       if (d.fwho) { st.who = d.fwho; reSuggest(); draw(); }
@@ -927,10 +956,10 @@ function friendQuick(p, cat) {
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><h3>${esc(fname(p.uid, p.g))} 付・${esc(cat)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <p class="small muted" style="margin:0 0 8px">記成：我欠 ${esc(fname(p.uid, p.g))}（${esc(fr().groups.find((g) => g.id === p.g)?.name || "")}），會同步到 LINE。</p>
-        ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === st.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        ${subChips(subs, st.sub)}
         <div class="amt-disp"></div>
+        ${linesHTML(st, subs)}
         <div class="field"><label for="fq-note">項目</label><input id="fq-note" value="${esc(st.note)}" maxlength="40" placeholder="選填，不寫就用「${esc(cat)}」"></div>
-        ${linesHTML(st)}
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
         const me = fr().me, item = ([st.note.trim(), C.linesNote(st.lines)].filter(Boolean).join(" ") || st.sub || cat).slice(0, 40);
@@ -945,7 +974,7 @@ function friendQuick(p, cat) {
       const t = e.target.closest("button");
       if (!t) return;
       if (t.dataset.close !== undefined) s.close();
-      if (t.dataset.sub !== undefined) { st.sub = st.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); }
+      if (t.dataset.sub !== undefined) { st.sub = toggleSub(st.sub, t.dataset.sub, subs); draw(); }
     });
     el.addEventListener("input", (e) => { if (e.target.id === "fq-note") st.note = e.target.value; });
     bindLines(el, st, draw);
@@ -998,7 +1027,7 @@ function moveRow(m) {
     <span class="amt mv">${C.money(m.amt)}</span></button>`;
 }
 // 移動：從一個帳戶到另一個（提款、存錢、繳卡費）。不算支出、不算收入
-function moveForm(m = null, preset = {}) {
+function moveForm(m = null, preset = {}, into = null) {
   if (data.accounts.length < 2) { toast("先到「更多 → 帳戶」新增第二個帳戶（例如郵局）"); return go("more", "accts"); }
   const last = lsGet("ledger-move-last", {}), has = (id) => data.accounts.some((a) => a.id === id);
   const from = [preset.from, last.from, "bank", data.accounts[0].id].find(has);
@@ -1006,10 +1035,11 @@ function moveForm(m = null, preset = {}) {
   const st = m ? { ...m, expr: String(m.amt), fee: "" } : { from, to, expr: preset.amt ? String(preset.amt) : "", date: today(), note: preset.note || "", sc: false, fee: preset.fee ? String(preset.fee) : "" };
   const lastFee = lsGet("ledger-fee-last", 0);
   const feeOn = () => !m && data.accounts.find((a) => a.id === st.from)?.type === "bank" && data.accounts.find((a) => a.id === st.to)?.type === "cash";   // 從銀行領現金才有手續費
-  openSheet((el, s) => {
+  sheetFor(into)((el, s) => {
+    if (!preset.amt) el._kpHidden = true;
     const draw = () => {
       const chips = (attr, cur, skip) => `<div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.id !== skip).map((a) => `<button class="chip${a.id === cur ? " on" : ""}" data-${attr}="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div>`;
-      el.innerHTML = `<div class="sheet-h"><h3>${m ? "修改移動" : "移動"}</h3>${m ? `<button class="btn text danger" data-mdel>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      el.innerHTML = `<div class="sheet-h">${m || preset.amt ? `<h3>${m ? "修改移動" : "移動"}</h3>` : recTabs("move")}${m ? `<button class="btn text danger" data-mdel>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <p class="small muted" style="margin:0 0 8px">錢從一個帳戶換到另一個（提款、存錢、繳卡費），不算支出。</p>
         <div class="field"><span class="lab">從</span>${chips("mfrom", st.from)}</div>
         <div class="field"><span class="lab">到</span>${chips("mto", st.to, st.from)}</div>
@@ -1044,6 +1074,7 @@ function moveForm(m = null, preset = {}) {
       if (!t) return;
       const d = t.dataset;
       if (d.close !== undefined) return s.close();
+      if (d.rt && d.rt !== "move") return switchRec(s, d.rt);
       if (d.mfrom) { st.from = d.mfrom; if (st.to === st.from) st.to = data.accounts.find((a) => a.id !== st.from).id; draw(); }
       if (d.mto) { st.to = d.mto; draw(); }
       if (d.msc !== undefined) st.sc = t.checked;

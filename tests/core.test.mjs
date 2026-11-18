@@ -243,5 +243,12 @@ eq("扇形順序：往前、往後、到頭不動", [C.moveIn(["a", "b", "c"], "
 
 eq("搜尋找得到明細裡的店家", C.searchItems([{ id: "1", type: "out", amt: 5, cat: "餐飲", date: "2026-11-01", note: "", lines: [{ shop: "麥味登", what: "蛋餅", amt: 5 }] }], "麥味登").length, 1);
 eq("CSV 備註有明細", C.toCSV([{ id: "1", type: "out", amt: 5, cat: "餐飲", date: "2026-11-01", note: "早餐", lines: [{ shop: "麥味登", what: "蛋餅", amt: 5 }] }]).includes("早餐｜麥味登 蛋餅 5"), true);
+eq("細項多選：組合存起來、拆得開", C.subParts("早餐＋午餐"), ["早餐", "午餐"]);
+{
+  const it = (amt, sub, lines) => ({ id: String(Math.random()), type: "out", amt, cat: "餐飲", sub, date: "2026-11-01", ...(lines ? { lines } : {}) });
+  eq("細項統計：沒明細＝組合；有明細選細項＝照金額分", C.bySub([it(150, "早餐＋午餐"), it(120, "早餐＋午餐", [{ shop: "a", what: "", amt: 75, sub: "早餐" }, { shop: "b", what: "", amt: 45, sub: "午餐" }]), it(100, "晚餐", [{ shop: "c", what: "", amt: 60, sub: "飲料" }])], "out", "餐飲").map((x) => [x.name, x.amt]),
+    [["早餐＋午餐", 150], ["早餐", 75], ["飲料", 60], ["午餐", 45], ["晚餐", 40]]);
+  eq("明細的細項留著", C.cleanLines([{ shop: "a", amt: 5, sub: "早餐" }])[0].sub, "早餐");
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);
