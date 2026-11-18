@@ -337,7 +337,8 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .line select { min-width: 0; padding: 8px 2px; font-size: 14px; }
 .lab .acct-hint { display: block; margin: 2px 0 0; font-size: var(--fs-small); color: var(--muted); font-weight: 400; }
 /* 扇形編輯 */
-.wed { display: flex; justify-content: center; margin: 8px 0; }
+.wed { display: flex; justify-content: center; margin: 8px 0; padding-inline: 8px; }
+.wed .wheel-ed { max-width: 100%; height: auto; }
 .wheel-ed { touch-action: none; user-select: none; -webkit-user-select: none; overflow: visible; }
 .wheel-ed .sg { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; cursor: grab; }
 .wheel-ed .sg.fr:not(.hot):not(.picked) { fill: var(--info-bg); }
@@ -419,7 +420,7 @@ body.has-bgimg .app.home .day .item:last-child { border-bottom: 0; }
 body.has-bgimg .app.home .chips .chip { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-color: var(--glass-edge); }
 body.has-bgimg .cat-ico { background: color-mix(in srgb, var(--accent-soft) 75%, transparent); }
 /* 其他頁：內容整片玻璃 */
-body.has-bgimg .app:not(.home) > :not(.top):not(.sheet-back) { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); padding-left: 12px; padding-right: 12px; margin-left: 0; margin-right: 0; }
+body.has-bgimg .app:not(.home) > :not(.top):not(.sheet-back) { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); padding-left: 12px !important; padding-right: 12px !important; margin-left: 0 !important; margin-right: 0 !important; }  /* !important：蓋過寫在元素上的 padding:… 0，內容才不會貼到卡片邊 */
 body.has-bgimg .app:not(.home) > .top + * { margin-top: 12px; border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg); padding-top: 4px; }
 body.has-bgimg .app:not(.home) > :last-child { border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg); padding-bottom: 12px; }
 /* 底下的按鈕列：上面的間距改成玻璃裡的留白（不露出一條背景），按鈕上下留一樣的空間 */
