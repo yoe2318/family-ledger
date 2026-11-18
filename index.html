@@ -24,36 +24,244 @@
 <script>addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.ledgerInstall = e; dispatchEvent(new Event("ledger:installable")); });</script>
 <!-- 開場動畫的樣式（放 head：記帳 App 會重畫整個 body） -->
 <style>
-#splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 14px; background: #F5F4F0; cursor: pointer; }
+#splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 6px; background: #F5F4F0; cursor: pointer; }
 #splash.dark { background: #171614; }
-#splash img { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 8px 22px rgb(0 0 0 / .16); animation: sp-pop .675s cubic-bezier(.3, 1.4, .5, 1) both; }
-#splash span { font: 700 19px/1.2 "Noto Sans TC", system-ui, sans-serif; letter-spacing: .08em; color: #1F1B17; animation: sp-name .525s ease-out .375s both; }
+#splash canvas { width: min(64vw, 260px); height: min(64vw, 260px); }
+#splash span { font: 700 20px/1.2 "Noto Sans TC", system-ui, sans-serif; letter-spacing: .08em; color: #1F1B17; opacity: 0; transform: translateY(8px); transition: opacity .35s ease-out, transform .35s ease-out; }
 #splash.dark span { color: #EEEAE3; }
+#splash span.on { opacity: 1; transform: none; }
 #splash.out { animation: sp-out .45s ease-in forwards; pointer-events: none; }
-@keyframes sp-pop { from { transform: scale(.6); opacity: 0; } 70% { opacity: 1; } to { transform: scale(1); opacity: 1; } }
-@keyframes sp-name { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes sp-out { to { transform: translateY(-12px); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { #splash img { animation: sp-name .4s ease-out both; } #splash.out { animation-duration: .2s; } }
+@media (prefers-reduced-motion: reduce) { #splash span { transition: none; } #splash.out { animation-duration: .2s; } }
 </style>
 </head>
 <body>
-<!-- 開場動畫：每次打開 App 播一次（重新整理不播）；App 準備好、而且播滿 1.2 秒才淡出；點一下跳過；最多 4 秒 -->
+<!-- 開場動畫（3D，程式照物理公式一格一格畫；做法在 ~/.claude/skills/anim3d）：每次打開 App 播一次（重新整理不播）；
+     App 準備好、而且動畫播完才淡出；點一下跳過；最多 4 秒 -->
 <script>
 (function () {
   window.splashReady = function () {};
   try { if (sessionStorage.getItem("splash-seen")) return; sessionStorage.setItem("splash-seen", "1"); } catch (e) { return; }
-  var dark = (function () { var m = "auto"; try { m = JSON.parse(localStorage.getItem("ledger-v1")).prefs.mode || "auto"; } catch (e) {} return m === "dark" || (m === "auto" && matchMedia("(prefers-color-scheme: dark)").matches); })();
+// anim3d-core.js：程式算物理的 3D 小動畫共用函式（canvas 2D＋一點透視，不用函式庫）
+// 用法：頁面先用 script 標籤載入這個檔案（或直接貼進 inline script），之後用全域的 A3D；Node 也可以 require／import（globalThis.A3D）
+// 注意：這個檔案和場景檔的註解裡不要寫出 script 的結束標籤，貼進 inline script 時會讓瀏覽器提早結束程式
+// 原則：場景寫成 draw(ctx, t, W, H, opts) 純函式——同一個 t 一定畫出同一張圖（才能逐格截圖輸出影片）
+(function (root) {
+  const TAU = Math.PI * 2;
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const lerp = (a, b, k) => a + (b - a) * k;
+  // 進度：t 在 [t0, t0+dur] 之間 → 0～1
+  const prog = (t, t0, dur) => clamp((t - t0) / dur);
+
+  // ---------------- easing（輸入 0～1）
+  const ease = {
+    linear: (x) => x,
+    in: (x) => x * x * x,
+    out: (x) => 1 - Math.pow(1 - x, 3),
+    inOut: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
+    outBack: (x, c = 1.7) => 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2),   // 回彈：稍微超過再回來
+    outElastic: (x) => (x === 0 || x === 1 ? x : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * (TAU / 3)) + 1),
+  };
+
+  // ---------------- 物理（輸入時間 t，秒）
+  // 自由落體＋彈跳衰減：從 h0 掉到 rest，第一次落地花 tFall 秒，每次落地速度乘 e；t0 之前停在 h0
+  function bounceY(t, { h0 = 150, rest = 0, tFall = 0.42, e = 0.42, t0 = 0, n = 5 } = {}) {
+    let tt = t - t0; if (tt < 0) return h0;
+    const g = (2 * (h0 - rest)) / (tFall * tFall);
+    if (tt < tFall) return h0 - 0.5 * g * tt * tt;
+    tt -= tFall; let v = g * tFall * e;
+    for (let i = 0; i < n; i++) { const d = (2 * v) / g; if (tt < d) return rest + v * tt - 0.5 * g * tt * tt; tt -= d; v *= e; }
+    return rest;
+  }
+  // 彈跳全部停下來的時間
+  function bounceEnd({ tFall = 0.42, e = 0.42, t0 = 0, n = 5 } = {}) { let s = t0 + tFall, d = 2 * tFall * e; for (let i = 0; i < n; i++) { s += d; d *= e; } return s; }
+  // 阻尼震盪：A·e^(−k·t)·cos(ω·t)，t<0 回 0
+  const damped = (t, A = 1, k = 6, w = 18) => (t < 0 ? 0 : A * Math.exp(-k * t) * Math.cos(w * t));
+  // 「彈一下」：1＋阻尼的 sin（給縮放用），t<0 回 1
+  const pop = (t, A = 0.15, k = 7, w = 20) => (t < 0 ? 1 : 1 + A * Math.exp(-k * t) * Math.sin(w * t));
+  // 單擺（小角度、可加阻尼）：回傳角度（弧度）
+  const pendulum = (t, th0 = 0.6, L = 1, g = 9.8, k = 0) => th0 * Math.exp(-k * t) * Math.cos(Math.sqrt(g / L) * t);
+  // 水平拋射：回傳 [x, y]（y 往上為正）
+  const projectile = (t, x0 = 0, y0 = 0, vx = 100, vy = 120, g = 400) => [x0 + vx * t, y0 + vy * t - 0.5 * g * t * t];
+  // 圓周運動、螺旋上升：回傳 [x, y, z]
+  const circle = (t, r = 40, w = TAU, cx = 0, cz = 0, y = 0) => [cx + r * Math.cos(w * t), y, cz + r * Math.sin(w * t)];
+  const spiral = (t, r = 40, w = TAU, rise = 60) => [r * Math.cos(w * t), rise * t, r * Math.sin(w * t)];
+
+  // ---------------- 鏡頭：繞 X 軸往下看 tilt 度＋透視。world：x 右、y 上、z 朝向觀眾
+  // span＝畫面寬度對應多少世界單位（越小物件越大）；cy＝地面原點在畫面高度的幾成
+  function cam(W, H, { tilt = 30, cy = 0.6, span = 200, F = 420 } = {}) {
+    const tl = (tilt * Math.PI) / 180, c = Math.cos(tl), s = Math.sin(tl), S = W / span;
+    const P = (x, y, z) => { const y2 = y * c - z * s, z2 = z * c + y * s, d = F / (F - z2); return [W / 2 + x * d * S, H * cy - y2 * d * S, z2]; };
+    P.facing = (n) => n[2] * c + n[1] * s;   // 法向量朝鏡頭的程度（>0 看得到）
+    P.S = S;
+    return P;
+  }
+  // 繞 Y 軸轉（弧度）
+  const rotY = (v, a) => { const c = Math.cos(a), s = Math.sin(a); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; };
+
+  // ---------------- 畫圖小工具
+  function poly(ctx, pts, fill, stroke, lw) {
+    ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; if (lw) ctx.lineWidth = lw; ctx.stroke(); }
+  }
+  function line(ctx, a, b, color, lw) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.strokeStyle = color; if (lw) ctx.lineWidth = lw; ctx.stroke(); }
+  // 地面上的影子：(x,z) 中心、半徑 rx/rz、透明度 a
+  function shadow(ctx, P, x, z, rx, rz, a) {
+    const c = P(x, 0, z), e = P(x + rx, 0, z), f = P(x, 0, z + rz);
+    ctx.save(); ctx.globalAlpha = clamp(a); ctx.fillStyle = "#000"; ctx.beginPath();
+    ctx.ellipse(c[0], c[1], Math.abs(e[0] - c[0]) + 0.1, Math.abs(f[1] - c[1]) + 0.5, 0, 0, TAU); ctx.fill(); ctx.restore();
+  }
+  // 盒子：底面中心 (x,y,z)、寬 w（x）、高 h（y）、厚 d（z），繞 Y 轉 ry；colors {front, back, left, right, top, bottom}
+  // 只畫朝鏡頭的面，由遠到近
+  function box(ctx, P, { x = 0, y = 0, z = 0, w, h, d, ry = 0, colors }) {
+    const hw = w / 2, hd = d / 2;
+    const V = (px, py, pz) => { const r = rotY([px, py, pz], ry); return P(x + r[0], y + r[1], z + r[2]); };
+    const faces = [
+      ["front", [0, 0, 1], [[-hw, 0, hd], [hw, 0, hd], [hw, h, hd], [-hw, h, hd]]],
+      ["back", [0, 0, -1], [[hw, 0, -hd], [-hw, 0, -hd], [-hw, h, -hd], [hw, h, -hd]]],
+      ["right", [1, 0, 0], [[hw, 0, hd], [hw, 0, -hd], [hw, h, -hd], [hw, h, hd]]],
+      ["left", [-1, 0, 0], [[-hw, 0, -hd], [-hw, 0, hd], [-hw, h, hd], [-hw, h, -hd]]],
+      ["top", [0, 1, 0], [[-hw, h, hd], [hw, h, hd], [hw, h, -hd], [-hw, h, -hd]]],
+      ["bottom", [0, -1, 0], [[-hw, 0, -hd], [hw, 0, -hd], [hw, 0, hd], [-hw, 0, hd]]],
+    ];
+    const vis = faces.map(([k, n, q]) => ({ k, f: P.facing(rotY(n, ry)), pts: q.map((p) => V(...p)) })).filter((o) => o.f > 0.001 && colors[o.k]);
+    vis.sort((a, b) => a.pts.reduce((m, p) => m + p[2], 0) - b.pts.reduce((m, p) => m + p[2], 0));
+    vis.forEach((o) => poly(ctx, o.pts, colors[o.k]));
+    // 回傳把「盒子上某個面的局部座標」投影到畫面的函式（畫貼在面上的圖案用）：front 面 (u,v) → 畫面
+    return { front: (u, v, lift = 0.3) => V(u, v, hd + lift), top: (u, w2, lift = 0.3) => V(u, h + lift, w2) };
+  }
+  // 圓柱／硬幣：中心 c=[x,y,z]、半徑 R、厚 th；方向用 tiltZ（繞 Z 倒下的角度）和 spin（繞 Y 轉）
+  // colors {face, side, side2, ring, shine}
+  function coin(ctx, P, { c, R, th, tiltZ = 0, spin = 0, colors, N = 28 }) {
+    const ca = Math.cos(tiltZ), sa = Math.sin(tiltZ);
+    const n = rotY([-sa, ca, 0], spin), e1 = rotY([ca, sa, 0], spin), e2 = rotY([0, 0, 1], spin);
+    const top = [], bot = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * TAU, u = [0, 1, 2].map((j) => Math.cos(a) * e1[j] + Math.sin(a) * e2[j]);
+      const b = [c[0] + u[0] * R, c[1] + u[1] * R, c[2] + u[2] * R];
+      top.push(P(b[0] + (n[0] * th) / 2, b[1] + (n[1] * th) / 2, b[2] + (n[2] * th) / 2));
+      bot.push(P(b[0] - (n[0] * th) / 2, b[1] - (n[1] * th) / 2, b[2] - (n[2] * th) / 2));
+    }
+    const sides = [];
+    for (let i = 0; i < N; i++) { const j = (i + 1) % N; sides.push({ d: top[i][2] + top[j][2] + bot[i][2] + bot[j][2], p: [top[i], top[j], bot[j], bot[i]], k: i }); }
+    sides.sort((a, b) => a.d - b.d).forEach((s) => poly(ctx, s.p, s.k % 2 ? colors.side : colors.side2 || colors.side));
+    const face = P.facing(n) >= 0 ? top : bot;
+    poly(ctx, face, colors.face);
+    const cc = face.reduce((m, p) => [m[0] + p[0] / N, m[1] + p[1] / N], [0, 0]);
+    if (colors.ring) poly(ctx, face.map((p) => [cc[0] + (p[0] - cc[0]) * 0.72, cc[1] + (p[1] - cc[1]) * 0.72]), null, colors.ring, Math.max(1, P.S * 1.2));
+    if (colors.shine) {
+      const rx = Math.abs(face[0][0] - cc[0]), ry2 = Math.abs(face[Math.floor(N / 4)][1] - cc[1]);
+      ctx.save(); ctx.globalAlpha = 0.55; ctx.fillStyle = colors.shine; ctx.beginPath();
+      ctx.ellipse(cc[0] - rx * 0.25, cc[1] - ry2 * 0.35, rx * 0.22 + 0.1, ry2 * 0.12 + 0.5, -0.5, 0, TAU); ctx.fill(); ctx.restore();
+    }
+    return { center: cc, normal: n };
+  }
+
+  // 鉛筆（畫面座標）：筆尖在 tip，往 ang 方向（弧度，畫面座標，-1 大約是往右上）延伸 L 長、w 粗
+  // 六角筆身三條亮暗面、削過的木頭、筆芯、金屬圈、橡皮擦，加一點落在下面的影子
+  function pencil(ctx, tip, { ang = -1.05, L = 60, w = 8, alpha = 1, shadow: sh = true, colors = {} } = {}) {
+    const c = { lit: "#F8D86E", mid: "#F2C14E", dark: "#D29E1E", wood: "#EDCFA6", wood2: "#D8B386", lead: "#2A2724", metal: "#C3C7CB", metal2: "#959BA1", eraser: "#E99A9A", ...colors };
+    const ux = Math.cos(ang), uy = Math.sin(ang), nx = -uy, ny = ux;
+    const at = (s, o) => [tip[0] + ux * s * L + nx * o * w, tip[1] + uy * s * L + ny * o * w];
+    const quad = (s0, s1, o0, o1, col) => poly(ctx, [at(s0, o0), at(s1, o0), at(s1, o1), at(s0, o1)], col);
+    ctx.save(); ctx.globalAlpha = alpha;
+    if (sh) { ctx.save(); ctx.globalAlpha = alpha * 0.12; ctx.translate(w * 0.35, w * 0.6); poly(ctx, [at(0.05, 0), at(0.24, -0.5), at(1, -0.5), at(1, 0.5), at(0.24, 0.5)], "#000"); ctx.restore(); }
+    poly(ctx, [at(0.07, -0.18), at(0.22, -0.5), at(0.22, 0), at(0.07, 0)], c.wood);      // 削過的木頭（亮的一半）
+    poly(ctx, [at(0.07, 0), at(0.22, 0), at(0.22, 0.5), at(0.07, 0.18)], c.wood2);      // 暗的一半
+    poly(ctx, [at(0, 0), at(0.07, -0.18), at(0.07, 0.18)], c.lead);                      // 筆芯
+    quad(0.22, 0.84, -0.5, -0.17, c.lit); quad(0.22, 0.84, -0.17, 0.17, c.mid); quad(0.22, 0.84, 0.17, 0.5, c.dark);   // 六角筆身
+    // 木頭和筆身交界的波浪（削鉛筆留下的）
+    ctx.fillStyle = c.mid; ctx.beginPath(); for (let i = 0; i <= 3; i++) { const o = -0.5 + i / 3; const p = at(0.22 - 0.025, o); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); const m = at(0.22, o + 1 / 6); ctx.lineTo(m[0], m[1]); }
+    const e1 = at(0.22, 0.5), e2 = at(0.22, -0.5); ctx.lineTo(e1[0], e1[1]); ctx.lineTo(e2[0], e2[1]); ctx.closePath(); ctx.fill();
+    quad(0.84, 0.92, -0.52, 0.52, c.metal); quad(0.865, 0.875, -0.52, 0.52, c.metal2); quad(0.895, 0.905, -0.52, 0.52, c.metal2);   // 金屬圈
+    quad(0.92, 0.985, -0.5, 0.5, c.eraser);                                              // 橡皮擦
+    const ec = at(0.985, 0); ctx.fillStyle = c.eraser; ctx.beginPath(); ctx.arc(ec[0], ec[1], w * 0.5, ang - Math.PI / 2, ang + Math.PI / 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // ---------------- 播放：requestAnimationFrame 迴圈；reduced motion 直接畫最後一格
+  // play(canvas, draw, { len, speed, opts, onEnd }) → 回傳 stop()
+  function play(canvas, draw, { len = 1.5, speed = 1, opts = {}, onEnd } = {}) {
+    const dpr = (typeof devicePixelRatio !== "undefined" && devicePixelRatio) || 1;
+    const w = canvas.clientWidth || canvas.width, h = canvas.clientHeight || canvas.height;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const reduce = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let raf = 0, t0 = performance.now();
+    const frame = (now) => {
+      const t = reduce ? len : Math.min(len, (now - t0) / 1000 / speed);
+      ctx.clearRect(0, 0, w, h); draw(ctx, t, w, h, opts);
+      if (t < len) raf = requestAnimationFrame(frame); else if (onEnd) onEnd();
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }
+
+  root.A3D = { TAU, clamp, lerp, prog, ease, bounceY, bounceEnd, damped, pop, pendulum, projectile, circle, spiral, cam, rotY, poly, line, shadow, box, coin, pencil, play };
+})(typeof globalThis !== "undefined" ? globalThis : window);
+
+// 範例：金色硬幣掉進攤開的記帳本（自由落體＋彈跳衰減＋阻尼翻面，最後躺平、帳本震一下）
+// 2026-11-19 為記帳 App 開場做的。用法：SCENES.coinLedger.draw(ctx, t, W, H, { tilt: 32, dark: false })
+// 書本比例：寬 132、深 124（比較方，鏡頭也比 tilt 多往下看 12°，才不會看起來像一長條）
+(function (root) {
+  const { prog, ease, bounceY, bounceEnd, pop, cam, poly, shadow, coin } = root.A3D;   // shadow：書本在地面上的影子
+  const COIN = { h0: 150, rest: 8, tFall: 0.42, e: 0.42, t0: 0.15 };
+  const END = bounceEnd(COIN);                     // 大約 1.0 秒停下來
+  const HW = 66, HD = 62, PW = 60, PD = 57;        // 封面半寬／半深、書頁半寬／半深
+  const pageY = (x) => 1.2 + 6.5 * Math.sin(Math.min(1, Math.abs(x) / PW) * Math.PI * 0.5);   // 書頁從書背往外彎起來
+  function draw(ctx, t, W, H, { tilt = 32, dark = false } = {}) {
+    const P = cam(W, H, { tilt: tilt + 12, cy: 0.58, span: 165 });
+    const appear = ease.out(prog(t, 0, 0.3)), settle = prog(t, END, 0.25);
+    const sc = (0.85 + 0.15 * appear) * pop(t - END + 0.05, 0.03, 8, 16);
+    const Q = (x, y, z) => P(x * sc, y * sc, z * sc);
+    ctx.save(); ctx.globalAlpha = appear;
+    shadow(ctx, P, 0, 2, (HW + 3) * sc, (HD + 2) * sc, dark ? 0.3 : 0.05);
+    poly(ctx, [Q(-HW, 0, HD), Q(HW, 0, HD), Q(HW, -9, HD), Q(-HW, -9, HD)], "#8A3E1C");              // 封面厚度（前）
+    poly(ctx, [Q(HW, 0, -HD), Q(HW, 0, HD), Q(HW, -9, HD), Q(HW, -9, -HD)], "#7A3618");              // 封面厚度（右）
+    poly(ctx, [Q(-HW, 0, -HD), Q(HW, 0, -HD), Q(HW, 0, HD), Q(-HW, 0, HD)], "#B3552A");              // 封面
+    // 書頁：沿著弧度取好幾個點，前緣露出一點紙的厚度
+    const N = 10, side = (s) => Array.from({ length: N + 1 }, (_, i) => s * (1 + ((PW - 1) * i) / N));
+    for (const s of [-1, 1]) {
+      const xs = side(s);
+      poly(ctx, [...xs.map((x) => Q(x, pageY(x) - 3, PD)), ...xs.slice().reverse().map((x) => Q(x, 0.5, PD))], "#E6DFD2");   // 紙的厚度
+      poly(ctx, [...xs.map((x) => Q(x, pageY(x), -PD)), ...xs.slice().reverse().map((x) => Q(x, pageY(x), PD))], s < 0 ? (dark ? "#EDE7DC" : "#FCFCFA") : "#F4F1EA");
+      ctx.strokeStyle = "#D9D3C7"; ctx.lineWidth = Math.max(1, W / 260);
+      for (let i = 0; i < 5; i++) {
+        const z = -38 + i * 17; ctx.beginPath();
+        xs.slice(2, N).forEach((x, j) => { const q = Q(x, pageY(x) + 0.1, z); j ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = "rgba(0,0,0,.14)"; const a = Q(0, 1, -PD), b = Q(0, 1, PD); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    ctx.restore();
+    if (t < COIN.t0) return;
+    const cx = 28, cz = 10, y = bounceY(t, COIN), tt = t - COIN.t0, R = 19;
+    const tiltZ = (1 - settle) * 1.15 * Math.exp(-2.2 * tt) * Math.cos(11 * tt), spin = 7 * (1 - Math.exp(-2.5 * tt));
+    const k = 1 - (y - COIN.rest) / COIN.h0;
+    // 影子畫在書頁上（不是地面）
+    const sp = P(cx, pageY(cx) + 0.2, cz), se = P(cx + R * (0.6 + 0.4 * k), pageY(cx) + 0.2, cz), sf = P(cx, pageY(cx) + 0.2, cz + R * 0.9 * (0.6 + 0.4 * k));
+    ctx.save(); ctx.globalAlpha = (dark ? 0.4 : 0.16) * k; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(sp[0], sp[1], Math.abs(se[0] - sp[0]), Math.abs(sf[1] - sp[1]) + 0.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    coin(ctx, P, { c: [cx, y, cz], R, th: 5, tiltZ, spin, colors: { face: "#F2C14E", side: "#B98A1F", side2: "#A87A14", ring: "#C9962A", shine: "#FFF3C4" } });
+  }
+  (root.SCENES = root.SCENES || {}).coinLedger = { draw, len: 1.25, name: "記帳" };
+})(typeof globalThis !== "undefined" ? globalThis : window);
+
+  var S = SCENES.coinLedger, dark = (function () { var m = "auto"; try { m = JSON.parse(localStorage.getItem("ledger-v1")).prefs.mode || "auto"; } catch (e) {} return m === "dark" || (m === "auto" && matchMedia("(prefers-color-scheme: dark)").matches); })();
   var el = document.createElement("div");
   el.id = "splash"; el.className = dark ? "dark" : ""; el.setAttribute("aria-hidden", "true");
-  el.innerHTML = '<img src="icons/icon-192.png" alt=""><span>記帳</span>';
+  el.innerHTML = '<canvas></canvas><span>記帳</span>';
   document.body.appendChild(el);
-  var t0 = Date.now(), done = false;
+  var t0 = Date.now(), done = false, minMs = (S.len + 0.35) * 1000, stop = function () {};
   function out() {
-    if (done) return; done = true;
+    if (done) return; done = true; stop();
     el.classList.add("out");
     setTimeout(function () { el.remove(); }, 500);
   }
-  window.splashReady = function () { setTimeout(out, Math.max(0, 1200 - (Date.now() - t0))); };
+  requestAnimationFrame(function () {
+    stop = A3D.play(el.querySelector("canvas"), S.draw, { len: S.len + 0.4, opts: { tilt: 32, dark: dark } });
+  });
+  setTimeout(function () { el.querySelector("span").classList.add("on"); }, S.len * 1000);
+  window.splashReady = function () { setTimeout(out, Math.max(0, minMs - (Date.now() - t0))); };
   el.addEventListener("click", out);
   setTimeout(out, 4000);
 })();
