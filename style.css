@@ -392,3 +392,38 @@ body.deco-receipt .hero { background: var(--surface); padding-left: 12px; paddin
 #bgimg { position: fixed; inset: 0; z-index: -1; background: center / cover no-repeat; pointer-events: none; }
 #bgimg::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: var(--veil, .7); }
 input[type="range"]#veil { width: 100%; accent-color: var(--accent); }
+
+/* ===== 有背景圖片：毛玻璃版面（沒放圖時這些都不會生效） ===== */
+body.has-bgimg { --glass: color-mix(in srgb, var(--surface) 70%, transparent); --glass-2: color-mix(in srgb, var(--surface) 45%, transparent);
+  --glass-edge: rgb(255 255 255 / .55); --blur: blur(14px) saturate(1.15); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.has-bgimg { --glass-edge: rgb(255 255 255 / .10); } }
+:root[data-theme="dark"] body.has-bgimg { --glass-edge: rgb(255 255 255 / .10); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { body.has-bgimg { --glass: color-mix(in srgb, var(--surface) 88%, transparent); --glass-2: color-mix(in srgb, var(--surface) 75%, transparent); } }
+body.has-bgimg .top { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); margin-inline: -16px; padding-left: 16px; padding-right: 16px; border-bottom: 1px solid var(--glass-edge); }
+body.has-bgimg .bottom { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top-color: var(--glass-edge); }
+body.has-bgimg .fab:not(.has-img) { border-color: transparent; box-shadow: 0 6px 18px rgb(0 0 0 / .22); }
+/* 首頁：一張一張的卡片 */
+body.has-bgimg .app.home > .hero, body.has-bgimg .app.home .acct-box, body.has-bgimg .app.home .fsum, body.has-bgimg .app.home .day,
+body.has-bgimg .app.home > .note, body.has-bgimg .app.home > .empty {
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--glass-edge); border-radius: var(--r-lg); margin-top: 12px; }
+body.has-bgimg .app.home > .hero { padding: 16px; }
+body.has-bgimg .app.home .acct-box { padding: 10px 12px 12px; }
+body.has-bgimg .app.home .acct-box .accts { margin-top: 0; }
+body.has-bgimg .app.home .acct-box .acct { background: var(--glass-2); border-color: var(--glass-edge); }
+body.has-bgimg .app.home .acct-box .note { margin: 8px 0 0; }
+body.has-bgimg .app.home .day { padding: 2px 12px 0; }
+body.has-bgimg .app.home .day .item:last-child { border-bottom: 0; }
+body.has-bgimg .app.home .chips .chip { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-color: var(--glass-edge); }
+body.has-bgimg .cat-ico { background: color-mix(in srgb, var(--accent-soft) 75%, transparent); }
+/* 其他頁：內容整片玻璃 */
+body.has-bgimg .app:not(.home) > :not(.top):not(.sheet-back) { background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); padding-left: 12px; padding-right: 12px; margin-left: 0; margin-right: 0; }
+body.has-bgimg .app:not(.home) > .top + * { margin-top: 12px; border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg); padding-top: 4px; }
+body.has-bgimg .app:not(.home) > :last-child { border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg); padding-bottom: 12px; }
+/* 中間按鈕換成圖片 */
+.fab.has-img { background: var(--surface) center / cover no-repeat; border: 3px solid var(--accent); box-shadow: 0 6px 18px rgb(0 0 0 / .25); position: relative; }
+.fab .fab-plus { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; border: 2px solid var(--surface); }
+.fab .fab-plus .ico { width: 14px; height: 14px; stroke-width: 3; }
+/* 裁切面板 */
+.crop-stage { display: flex; justify-content: center; padding: 8px 0; }
+.crop-stage canvas { touch-action: none; border-radius: var(--r); background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); cursor: grab; max-width: 100%; }
+.crop-stage.circle canvas { border-radius: 8px; }

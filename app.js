@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -139,22 +139,24 @@ darkMQ.addEventListener?.("change", applyTheme);
 const BGDB = {
   open() { return new Promise((ok, no) => { try { const r = indexedDB.open("ledger-bg", 1); r.onupgradeneeded = () => r.result.createObjectStore("img"); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); },
   async run(mode, fn) { const db = await this.open(); return new Promise((ok, no) => { const tx = db.transaction("img", mode), q = fn(tx.objectStore("img")); tx.oncomplete = () => ok(q?.result ?? null); tx.onerror = () => no(tx.error); }); },
-  get() { return this.run("readonly", (o) => o.get("bg")); },
-  set(blob) { return this.run("readwrite", (o) => o.put(blob, "bg")); },
-  del() { return this.run("readwrite", (o) => o.delete("bg")); },
+  get(key = "bg") { return this.run("readonly", (o) => o.get(key)); },
+  set(blob, key = "bg") { return this.run("readwrite", (o) => o.put(blob, key)); },
+  del(...keys) { return this.run("readwrite", (o) => { for (const k of keys.length ? keys : ["bg", "bg-orig"]) o.delete(k); }); },
 };
 let bgURL = null;
 async function showBgImg() {
   let layer = $("#bgimg");
   if (!layer) { layer = Object.assign(document.createElement("div"), { id: "bgimg", hidden: true }); document.body.prepend(layer); }
-  if (!data.prefs.bgImg) { layer.hidden = true; return; }
+  const off = () => { layer.hidden = true; document.body.classList.remove("has-bgimg"); };
+  if (!data.prefs.bgImg) return off();
   try {
     const blob = await BGDB.get();
-    if (!blob) { layer.hidden = true; return; }
+    if (!blob) return off();
     if (bgURL) URL.revokeObjectURL(bgURL);
     bgURL = URL.createObjectURL(blob);
     layer.style.backgroundImage = `url("${bgURL}")`; layer.hidden = false;
-  } catch { layer.hidden = true; }
+    document.body.classList.add("has-bgimg");
+  } catch { off(); }
 }
 // 選圖：縮到最長邊 1200px、轉 JPEG，太大的照片存不下也很慢
 async function loadImage(file) {
@@ -162,17 +164,138 @@ async function loadImage(file) {
   const url = URL.createObjectURL(file);
   try { const im = new Image(); im.src = url; await im.decode(); return im; } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
 }
+// ================================================================ 圖片裁切（背景：手機螢幕比例；中間按鈕：圓形）
+// 單指拖＝移動，兩指捏＝放大縮小，下面也有放大滑桿。圖片最小剛好蓋滿框。回傳 { blob, crop }，取消回傳 null
+// crop = { x, y, z }：框中心對到圖片的哪裡（0～1）、放大倍率（1＝剛好蓋滿）
+function cropper({ img, shape = "rect", outW = 1080, init = null }) {
+  return new Promise((resolve) => {
+    const aspect = shape === "circle" ? 1 : innerWidth / innerHeight;
+    const iw = img.width, ih = img.height;
+    const st = { x: init?.x ?? 0.5, y: init?.y ?? 0.5, z: init?.z ?? 1 };
+    let done = false, W = 0, H = 0, cv, ctx;
+    const geo = (w, h) => {               // 這個框大小下，圖片畫多大、從哪裡開始
+      const s = Math.max(w / iw, h / ih) * st.z, dw = iw * s, dh = ih * s;
+      st.x = Math.min(1 - w / 2 / dw, Math.max(w / 2 / dw, st.x));
+      st.y = Math.min(1 - h / 2 / dh, Math.max(h / 2 / dh, st.y));
+      return { dw, dh, left: w / 2 - st.x * dw, top: h / 2 - st.y * dh };
+    };
+    const draw = () => {
+      const g = geo(W, H);
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(img, g.left, g.top, g.dw, g.dh);
+      if (shape === "circle") {           // 圓形外面變暗
+        ctx.save(); ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2, true); ctx.fill("evenodd");
+        ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      }
+      const zi = s.el.querySelector("#crop-z"); if (zi && document.activeElement !== zi) zi.value = Math.round(st.z * 100);
+    };
+    const s = openSheet((el) => {
+      el.classList.add("crop-sheet");
+      el.innerHTML = `<div class="sheet-h"><h3>${shape === "circle" ? "調整按鈕圖片" : "調整背景圖片"}</h3><button class="icon-btn" data-close aria-label="取消">${ico("x")}</button></div>
+        <p class="small muted" style="margin:0 0 8px">用手指拖動圖片移動位置，兩指往外撥放大、往內捏縮小。${shape === "circle" ? "圓圈裡的部分會變成按鈕。" : "框裡的樣子就是背景。"}</p>
+        <div class="crop-stage ${shape}"><canvas aria-label="拖動調整圖片位置"></canvas></div>
+        <div class="field"><label for="crop-z">放大</label><input type="range" id="crop-z" min="100" max="400" step="5" value="${Math.round(st.z * 100)}"></div>
+        <div class="row-btns"><button class="btn grow" data-cno>取消</button><button class="btn primary grow" data-cok>存起來</button></div>`;
+      const stage = el.querySelector(".crop-stage");
+      cv = el.querySelector("canvas"); ctx = cv.getContext("2d");
+      const fit = () => {
+        const maxW = Math.min(stage.clientWidth || 300, shape === "circle" ? 260 : 300), maxH = Math.max(220, innerHeight * 0.52);
+        W = Math.round(Math.min(maxW, maxH * aspect)); H = Math.round(W / aspect);
+        const dpr = devicePixelRatio || 1;
+        cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        draw();
+      };
+      requestAnimationFrame(fit);
+      // 拖、捏
+      const pts = new Map();
+      let last = null;
+      const state = () => { const v = [...pts.values()]; return v.length >= 2 ? { mode: "pinch", d: Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y) } : v.length === 1 ? { mode: "drag", x: v[0].x, y: v[0].y } : null; };
+      cv.addEventListener("pointerdown", (e) => { e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch { /* 沒關係 */ } pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); last = state(); });
+      cv.addEventListener("pointermove", (e) => {
+        if (!pts.has(e.pointerId)) return;
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const now = state(), g = geo(W, H);
+        if (now?.mode === "drag" && last?.mode === "drag") { st.x -= (now.x - last.x) / g.dw; st.y -= (now.y - last.y) / g.dh; }
+        if (now?.mode === "pinch" && last?.mode === "pinch" && last.d > 0) st.z = Math.min(4, Math.max(1, st.z * (now.d / last.d)));
+        last = now; draw();
+      });
+      const up = (e) => { pts.delete(e.pointerId); last = state(); };
+      cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+      cv.addEventListener("wheel", (e) => { e.preventDefault(); st.z = Math.min(4, Math.max(1, st.z * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); draw(); }, { passive: false });
+      el.addEventListener("input", (e) => { if (e.target.id === "crop-z") { st.z = +e.target.value / 100; draw(); } });
+      el.addEventListener("click", async (e) => {
+        const t = e.target.closest("button");
+        if (!t) return;
+        if (t.dataset.close !== undefined || t.dataset.cno !== undefined) { done = true; s.close(); return resolve(null); }
+        if (t.dataset.cok !== undefined) {
+          const ow = shape === "circle" ? 256 : outW, oh = Math.round(ow / aspect);
+          const out = Object.assign(document.createElement("canvas"), { width: ow, height: oh }), oc = out.getContext("2d");
+          const g = geo(ow, oh);
+          if (shape === "circle") { oc.beginPath(); oc.arc(ow / 2, oh / 2, ow / 2, 0, Math.PI * 2); oc.clip(); }
+          oc.drawImage(img, g.left, g.top, g.dw, g.dh);
+          const blob = await new Promise((ok) => out.toBlob(ok, shape === "circle" ? "image/png" : "image/jpeg", 0.85));
+          done = true; s.close();
+          resolve(blob ? { blob, crop: { x: st.x, y: st.y, z: st.z } } : null);
+        }
+      });
+    });
+    s.onClose = () => { if (!done) resolve(null); };
+  });
+}
+// 原圖先縮到最長邊 2000px 存一份，之後「調整位置」用它重新裁
+async function shrink(im, max = 2000, type = "image/jpeg") {
+  const k = Math.min(1, max / Math.max(im.width, im.height));
+  const c = Object.assign(document.createElement("canvas"), { width: Math.round(im.width * k), height: Math.round(im.height * k) });
+  c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+  return new Promise((ok) => c.toBlob(ok, type, 0.9));
+}
+// 背景圖片：選圖 → 裁切 → 存
 async function pickBgImage(file) {
   try {
-    const im = await loadImage(file), w = im.width, h = im.height, k = Math.min(1, 1200 / Math.max(w, h));
-    const c = Object.assign(document.createElement("canvas"), { width: Math.round(w * k), height: Math.round(h * k) });
-    c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
-    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.82));
-    if (!blob) throw new Error("toBlob");
-    await BGDB.set(blob);
-    commit({ ...data, prefs: { ...data.prefs, bgImg: true } });
+    const im = await loadImage(file), orig = await shrink(im);
+    const r = await cropper({ img: await loadImage(orig), shape: "rect" });
+    if (!r) return;
+    await BGDB.set(r.blob, "bg"); await BGDB.set(orig, "bg-orig");
+    commit({ ...data, prefs: { ...data.prefs, bgImg: true, bgCrop: r.crop } });
     await showBgImg();
     toast("背景圖片換好了，可以用下面的滑桿調淡一點或濃一點");
+  } catch { toast("存不了這張圖片（可能是無痕模式，或圖片格式不支援）"); }
+}
+async function adjustBgImage() {
+  try {
+    const orig = await BGDB.get("bg-orig");
+    if (!orig) return toast("找不到原本的圖片，請重新選一張");
+    const r = await cropper({ img: await loadImage(orig), shape: "rect", init: data.prefs.bgCrop });
+    if (!r) return;
+    await BGDB.set(r.blob, "bg");
+    commit({ ...data, prefs: { ...data.prefs, bgCrop: r.crop } });
+    await showBgImg(); toast("位置調好了");
+  } catch { toast("存不了這張圖片"); }
+}
+// 中間按鈕的圖片
+let fabURL = null;
+async function showFab() {
+  const b = $("#fab");
+  if (!b) return;
+  let blob = null;
+  if (data.prefs.fabImg) { try { blob = await BGDB.get("fab"); } catch { /* 沒有就用 ＋ */ } }
+  if (fabURL) { URL.revokeObjectURL(fabURL); fabURL = null; }
+  if (!blob) { b.classList.remove("has-img"); b.style.backgroundImage = ""; b.innerHTML = ico("plus"); return; }
+  fabURL = URL.createObjectURL(blob);
+  b.classList.add("has-img"); b.style.backgroundImage = `url("${fabURL}")`;
+  b.innerHTML = data.prefs.fabPlus ? `<span class="fab-plus">${ico("plus")}</span>` : "";
+}
+async function pickFabImage(file, adjust = false) {
+  try {
+    let orig = adjust ? await BGDB.get("fab-orig") : null;
+    if (adjust && !orig) return toast("找不到原本的圖片，請重新選一張");
+    if (!adjust) orig = await shrink(await loadImage(file), 1200);
+    const r = await cropper({ img: await loadImage(orig), shape: "circle", init: adjust ? data.prefs.fabCrop : null });
+    if (!r) return;
+    await BGDB.set(r.blob, "fab"); if (!adjust) await BGDB.set(orig, "fab-orig");
+    commit({ ...data, prefs: { ...data.prefs, fabImg: true, fabCrop: r.crop } });
+    await showFab(); toast(adjust ? "位置調好了" : "中間按鈕換好了，點一下一樣是記帳");
   } catch { toast("存不了這張圖片（可能是無痕模式，或圖片格式不支援）"); }
 }
 
@@ -649,7 +772,7 @@ function dayList(list, moves = []) {
   const dates = [...new Set([...days.map((d) => d.date), ...md.keys()])].sort().reverse();
   return dates.map((date) => {
     const d = days.find((x) => x.date === date) || { items: [], out: 0, in: 0 }, ms = (md.get(date) || []).sort((a, b) => b.t - a.t);
-    return `<div class="day-h"><b>${esc(C.dayLabel(date, today()))}</b><span class="num">支出 ${C.money(d.out)}${d.in ? `　收入 ${C.money(d.in)}` : ""}</span></div>${d.items.map(itemRow).join("")}${ms.map(moveRow).join("")}`;
+    return `<div class="day"><div class="day-h"><b>${esc(C.dayLabel(date, today()))}</b><span class="num">支出 ${C.money(d.out)}${d.in ? `　收入 ${C.money(d.in)}` : ""}</span></div>${d.items.map(itemRow).join("")}${ms.map(moveRow).join("")}</div>`;
   }).join("");
 }
 // 搜尋結果（只重畫這一塊，輸入框不動：注音、倉頡選字到一半才不會被打斷）
@@ -1122,11 +1245,11 @@ function acctRow() {
   if (!C.acctShown(data)) return "";
   const bal = C.acctBalances(data);
   const bills = data.accounts.map((a) => ({ a, b: C.cardBill(data, a, today()) })).filter((x) => x.b?.amount > 0);
-  return `<div class="accts">${data.accounts.map((a) => `<button class="acct" data-recon="${esc(a.id)}" title="點一下對帳"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
+  return `<div class="acct-box"><div class="accts">${data.accounts.map((a) => `<button class="acct" data-recon="${esc(a.id)}" title="點一下對帳"><small>${esc(a.name)}</small><b class="num${bal[a.id] < 0 ? " neg" : ""}">${C.money(bal[a.id])}</b></button>`).join("")}
 </div>
     <div class="acct-total"><span>總共 <b class="num">${C.money(Object.values(bal).reduce((x, y) => x + y, 0))}</b><small>（所有帳戶加起來，信用卡欠的已經扣掉）</small></span>
       ${data.accounts.length > 1 ? `<button class="btn acct-mv" data-move>${ico("repeat")}移動</button>` : ""}</div>
-    ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}`;
+    ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}</div>`;
 }
 // 手續費那筆支出：其他・手續費，從 acct 扣（「其他」沒有「手續費」細項就加上）
 function feeRecord(d, acct, fee, date) {
@@ -1607,8 +1730,13 @@ function pgTheme() {
     <div class="sec-h"><span>自訂背景圖片</span></div>
     <p class="small muted" style="margin:0">從相簿選一張圖當背景。圖只存在這台手機，不會上傳，也不會放進備份檔。</p>
     <input type="file" id="bgimg-in" accept="image/*" hidden>
-    <div class="row-btns"><button class="btn grow" data-bgpick>${ico("upload")}${P.bgImg ? "換一張" : "選圖片"}</button>${P.bgImg ? `<button class="btn danger" data-bgrm>${ico("trash")}拿掉</button>` : ""}</div>
+    <div class="row-btns"><button class="btn grow" data-bgpick>${ico("upload")}${P.bgImg ? "換一張" : "選圖片"}</button>${P.bgImg ? `<button class="btn grow" data-bgadj>${ico("pencil")}調整位置</button><button class="btn danger" data-bgrm>${ico("trash")}拿掉</button>` : ""}</div>
     ${P.bgImg ? `<div class="field"><label for="veil">圖片淡一點</label><input type="range" id="veil" min="40" max="90" step="5" value="${P.veil}" aria-label="背景圖片蓋上去的淡色，越大圖片越淡"></div><p class="small muted" style="margin:0">往右：圖片越淡、字越清楚；往左：圖片越明顯。</p>` : ""}
+    <div class="sec-h"><span>中間的記帳按鈕</span></div>
+    <p class="small muted" style="margin:0">把下面中間的 ＋ 換成自己的圖片（圓形）。點一下、長按一劃都跟原本一樣。圖只存在這台手機。</p>
+    <input type="file" id="fabimg-in" accept="image/*" hidden>
+    <div class="row-btns"><button class="btn grow" data-fabpick>${ico("upload")}${P.fabImg ? "換一張" : "換成圖片"}</button>${P.fabImg ? `<button class="btn grow" data-fabadj>${ico("pencil")}調整位置</button><button class="btn" data-fabrm>換回 ＋</button>` : ""}</div>
+    ${P.fabImg ? `<label class="check"><input type="checkbox" id="fab-plus"${P.fabPlus ? " checked" : ""}> 圖片右下角顯示小 ＋（讓人知道這是記帳按鈕）</label>` : ""}
     <div class="sec-h"><span>數字鍵盤大小</span></div>
     <p class="small muted" style="margin:0">記帳時按住鍵盤上面的小把手上下拖就能調大小，點一下把手可以收起鍵盤。現在每顆鍵 <b class="num">${P.keyH}</b> px。</p>
     <div class="row-btns"><button class="btn" data-keyh="-6">小一點</button><button class="btn" data-keyh="6">大一點</button><button class="btn text" data-keyh="0">恢復預設</button></div>`;
@@ -1687,6 +1815,7 @@ function render() {
   const html = ui.tab === "stats" ? renderStats() : ui.tab === "cal" ? renderCal() : ui.tab === "more" ? renderMore() : renderHome();
   main.innerHTML = html;
   main.classList.toggle("swipe-x", ui.tab === "cal");
+  main.classList.toggle("home", ui.tab === "home" && ui.search === null);
   nav.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === ui.tab));
   if (ui.search !== null) { const q = $("#q"); if (q && document.activeElement !== q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 }
@@ -1816,6 +1945,10 @@ async function onClick(e) {
   if (d.font) { commit({ ...data, prefs: { ...data.prefs, font: d.font } }); applyTheme(); return render(); }
   if (d.radius) { commit({ ...data, prefs: { ...data.prefs, radius: d.radius } }); applyTheme(); return render(); }
   if (d.bgpick !== undefined) return $("#bgimg-in")?.click();
+  if (d.bgadj !== undefined) return adjustBgImage();
+  if (d.fabpick !== undefined) return $("#fabimg-in")?.click();
+  if (d.fabadj !== undefined) return pickFabImage(null, true);
+  if (d.fabrm !== undefined) { try { await BGDB.del("fab", "fab-orig"); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, fabImg: false } }); showFab(); return toast("換回 ＋ 了"); }
   if (d.bgrm !== undefined) { try { await BGDB.del(); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, bgImg: false } }); showBgImg(); return toast("背景圖片拿掉了"); }
   if (d.theme) { commit({ ...data, prefs: { ...data.prefs, theme: d.theme } }); return applyTheme(); }
   if (d.mode) { commit({ ...data, prefs: { ...data.prefs, mode: d.mode } }); applyTheme(); return render(); }
@@ -1829,8 +1962,8 @@ async function onClick(e) {
   if (d.clearall !== undefined) {
     const v = await ask("真的要清除全部資料？", "請輸入「清除」兩個字確認。", [["no", "取消"], ["ok", "清除全部", "danger"]], "");
     if (v?.trim() !== "清除") { if (v !== null) toast("沒有清除（要輸入「清除」）"); return; }
-    try { await BGDB.del(); } catch { /* 沒有也沒關係 */ }
-    commit(C.emptyData(), { quiet: true }); applyTheme(); showBgImg(); ui.period = periodNow(); toast("全部清除了"); return go("home");
+    try { await BGDB.del("bg", "bg-orig", "fab", "fab-orig"); } catch { /* 沒有也沒關係 */ }
+    commit(C.emptyData(), { quiet: true }); applyTheme(); showBgImg(); showFab(); ui.period = periodNow(); toast("全部清除了"); return go("home");
   }
 }
 function onInput(e) {
@@ -1842,6 +1975,8 @@ function onInput(e) {
 function onChange(e) {
   const t = e.target;
   if (t.id === "bgimg-in" && t.files?.[0]) { pickBgImage(t.files[0]); t.value = ""; return; }
+  if (t.id === "fabimg-in" && t.files?.[0]) { pickFabImage(t.files[0]); t.value = ""; return; }
+  if (t.id === "fab-plus") { commit({ ...data, prefs: { ...data.prefs, fabPlus: t.checked } }, { quiet: true }); return showFab(); }
   if (t.id === "veil") { commit({ ...data, prefs: { ...data.prefs, veil: +t.value } }, { quiet: true }); return applyTheme(); }
   if (t.id === "imp" && t.files?.[0]) { importBackup(t.files[0]); t.value = ""; return; }
   if (t.dataset.wfr !== undefined) {
@@ -1873,7 +2008,7 @@ function start() {
   const res = C.applyRecurring(data, today());           // 固定收支：到期的補記
   if (res.added.length) { data = res.data; save(); }
   buildShell();
-  showBgImg();
+  showBgImg(); showFab();
   history.replaceState({ tab: "home" }, "");
   render();
   if (res.added.length) toast(`自動記了 ${res.added.length} 筆固定收支`);

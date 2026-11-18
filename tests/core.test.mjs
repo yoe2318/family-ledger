@@ -261,5 +261,7 @@ for (const [id, st] of Object.entries(C.STYLES)) for (const mode of ["light", "d
 eq("套用主題：一次設好", (({ style, theme, bg, pattern, radius, font }) => [style, theme, bg, pattern, radius, font])(C.applyStyle(C.emptyData().prefs, "bow")), ["bow", "ribbon", "bow", "polka", "l", "round"]);
 eq("主題偏好：亂填的改回預設", ((p) => [p.style, p.font, p.radius, p.bgImg, p.veil])(C.cleanData({ items: [], prefs: { style: "x", font: "x", radius: "x", veil: 5 } }).prefs), ["notebook", "sans", "m", false, 40]);
 eq("紋路 CSS", [C.patternCSS("plain", "", "")[0], C.patternCSS("grid", "red", "")[1], C.patternCSS("stars", "", "#fff")[0].startsWith('url("data:image/svg+xml')], ["none", "24px 24px", true]);
+eq("裁切位置：超出範圍拉回來、壞的丟掉", [C.cleanCrop({ x: 2, y: -1, z: 9 }), C.cleanCrop({ x: "a" }), C.cleanCrop(null)], [{ x: 1, y: 0, z: 4 }, null, null]);
+eq("中間按鈕偏好", ((p) => [p.fabImg, p.fabPlus, p.fabCrop])(C.cleanData({ items: [], prefs: { fabImg: true, fabPlus: false, fabCrop: { x: .3, y: .4, z: 2 } } }).prefs), [true, false, { x: .3, y: .4, z: 2 }]);
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

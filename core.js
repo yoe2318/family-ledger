@@ -34,7 +34,7 @@ export function emptyData() {
     wheel: { cats: cats.out.slice(0, 8).map((c) => c.name), pays: [...DEFAULT_PAYS] },
     budget: { total: 0, cats: {} }, recurring: [], debts: [], goals: [],
     accounts: DEFAULT_ACCTS.map((a) => ({ ...a })), payAcct: {}, moves: [],
-    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash", style: "notebook", font: "sans", radius: "m", bgImg: false, veil: 70 }, lastBackup: 0,
+    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash", style: "notebook", font: "sans", radius: "m", bgImg: false, veil: 45, fabImg: false, fabPlus: true }, lastBackup: 0,
   };
 }
 
@@ -329,7 +329,8 @@ export function cleanData(raw) {
       bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH),
       inAcct: okA(p.inAcct) || accounts[0].id, outAcct: okA(p.outAcct) || accounts[0].id,
       style: STYLES[p.style] ? p.style : "notebook", font: FONTS[p.font] ? p.font : "sans", radius: RADII[p.radius] ? p.radius : "m",
-      bgImg: !!p.bgImg, veil: Math.min(90, Math.max(40, int(p.veil) || 70)),
+      bgImg: !!p.bgImg, veil: Math.min(90, Math.max(40, int(p.veil) || 45)), fabImg: !!p.fabImg, fabPlus: p.fabPlus !== false,
+      ...(cleanCrop(p.bgCrop) ? { bgCrop: cleanCrop(p.bgCrop) } : {}), ...(cleanCrop(p.fabCrop) ? { fabCrop: cleanCrop(p.fabCrop) } : {}),
       ...(p.friend && parseLink("#link=" + encodeURIComponent(String(p.friend.url || "")) + "~" + String(p.friend.key || "")) ? { friend: { url: String(p.friend.url), key: String(p.friend.key), auto: p.friend.auto !== false } } : {}) },
     lastBackup: Number(raw.lastBackup) || 0,
     ...(cleanFriends(raw.friends) ? { friends: cleanFriends(raw.friends) } : {}),
@@ -701,4 +702,12 @@ export function decoSVG(kind, c) {
   if (kind === "bow") return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='26' height='18' viewBox='0 0 26 18'><path d='M13 9C9 3 3 1 2 4s1 10 4 11 5-3 7-6zM13 9c4-6 10-8 11-5s-1 10-4 11-5-3-7-6z' fill='${c}'/><circle cx='13' cy='9' r='2.6' fill='${c}' stroke='white' stroke-width='1'/></svg>`);
   if (kind === "bell") return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'><circle cx='9' cy='9' r='7.5' fill='${c}' stroke='%238A6A10' stroke-width='1'/><path d='M2.5 7.5h13' stroke='%238A6A10' stroke-width='1.2'/><circle cx='9' cy='11.5' r='1.6' fill='%236B520C'/></svg>`.replace(/%23/g, "#"));
   return "none";
+}
+
+// 圖片裁切的位置：框中心對到圖片的哪裡（0～1）、放大倍率（1～4）
+export function cleanCrop(c) {
+  if (!c || typeof c !== "object") return null;
+  const x = Number(c.x), y = Number(c.y), z = Number(c.z);
+  if (![x, y, z].every(Number.isFinite)) return null;
+  return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), z: Math.min(4, Math.max(1, z)) };
 }
