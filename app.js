@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.3.4";
+const VERSION = "1.4.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -204,7 +204,7 @@ function pressKey(expr, k) {
 function bindKeypad(el, st, onSave) {
   el._kp = { st, onSave };
   const kp = () => el.querySelector(".kp");
-  const upd = () => {
+  const upd = el._kpUpd = () => {
     const disp = el.querySelector(".amt-disp"), ex = el._kp.st.expr;
     if (disp) disp.innerHTML = amountHTML(ex);
     el.querySelectorAll('[data-k="save"]').forEach((b) => { b.disabled = !C.evalAmount(ex); });
@@ -268,6 +268,42 @@ function bindKeypad(el, st, onSave) {
   el.tabIndex = -1; el.focus({ preventScroll: true });
 }
 
+// ================================================================ 備註明細表（店家｜吃了什麼｜金額）
+// st.lines = [{ shop, what, amt }]；有填金額的話，總金額＝各列加總（鍵盤上方的大數字跟著變）
+const blankLine = () => ({ shop: "", what: "", amt: "" });
+function linesHTML(st) {
+  return `<div class="lines">${st.lines.map((l, i) => `<div class="line">
+      <input data-ln="${i}" data-lk="shop" value="${esc(l.shop)}" placeholder="店家" maxlength="20" list="shops-dl" aria-label="店家">
+      <input data-ln="${i}" data-lk="what" value="${esc(l.what)}" placeholder="吃了什麼" maxlength="30" aria-label="吃了什麼">
+      <input data-ln="${i}" data-lk="amt" value="${esc(l.amt)}" placeholder="金額" inputmode="numeric" class="la" aria-label="金額">
+      <button class="icon-btn" data-lrm="${i}" aria-label="刪掉這一列">${ico("x")}</button></div>`).join("")}
+    <button class="btn text small" data-ladd style="padding:4px 0">${ico("plus")}明細（店家、吃了什麼、金額）</button>
+    <datalist id="shops-dl">${C.recentShops(data.items).map((x) => `<option value="${esc(x)}">`).join("")}</datalist></div>`;
+}
+// 綁一次就好（面板重畫不會重複綁）。draw：加、刪一列後重畫
+function bindLines(el, st, draw) {
+  if (el._lnBound) return;
+  el._lnBound = true;
+  const sync = () => {                 // 有明細金額：總金額跟著加總；明細金額都清掉，就把自動帶的金額也清掉
+    const tot = C.linesTotal(st.lines);
+    if (tot > 0) { st.expr = String(tot); st.fromLines = true; } else if (st.fromLines) { st.expr = ""; st.fromLines = false; }
+    el._kpUpd?.();
+  };
+  el.addEventListener("input", (e) => {
+    const i = e.target.dataset.ln;
+    if (i === undefined || !st.lines[+i]) return;
+    st.lines[+i][e.target.dataset.lk] = e.target.value;
+    if (e.target.dataset.lk === "amt") sync();
+  });
+  el.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-ladd], [data-lrm]");
+    if (!t) return;
+    if (t.dataset.ladd !== undefined) { st.lines.push(blankLine()); draw(); el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="shop"]`)?.focus(); }
+    else { st.lines.splice(+t.dataset.lrm, 1); draw(); sync(); }
+  });
+}
+const linesOf = (st) => C.cleanLines(st.lines);
+
 // ================================================================ 記一筆
 function addItem(item, msg) {
   if (!item.acct && !String(item.id).startsWith("fr-")) item = { ...item, acct: C.acctFor(data, item.type, item.pay) };   // 從哪個帳戶扣：照當下設定，之後改設定不影響這筆
@@ -280,6 +316,7 @@ function openForm(item = null, preset = {}) {
   const f = item ? { ...item, expr: String(item.amt) } : { type: "out", cat: "", sub: "", pay: data.prefs.lastPay, date: today(), note: "", expr: "", ...preset };
   if (!f.cat) f.cat = data.cats[f.type][0]?.name || "其他";
   if (f.type === "in" && !f.acct) f.acct = C.acctFor(data, "in", "");
+  f.lines = (item?.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" }));
   let makeShortcut = false;
   openSheet((el, s) => {
     const draw = () => {
@@ -295,11 +332,12 @@ function openForm(item = null, preset = {}) {
         ${f.type === "out" ? `<div class="field"><span class="lab">付款方式</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
         <div class="field"><label for="f-date">日期</label><input id="f-date" type="date" value="${esc(f.date)}" max="2100-12-31"></div>
         <div class="field"><label for="f-note">備註</label><input id="f-note" value="${esc(f.note)}" maxlength="200" placeholder="例如：全聯、和朋友聚餐"></div>
+        ${linesHTML(f)}
         ${item ? "" : `<label class="check"><input type="checkbox" data-sc${makeShortcut ? " checked" : ""}> 存成常用捷徑（首頁一點就能再記一次）</label>`}
         ${keypadHTML()}`;
       bindKeypad(el, f, (amt) => {
         const acct = f.type === "in" ? f.acct || C.acctFor(data, "in", "") : item && item.type === "out" && item.pay === f.pay && item.acct ? item.acct : C.acctFor(data, "out", f.pay);
-        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}), ...(String(item?.id).startsWith("fr-") ? {} : { acct }) };
+        const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}), ...(String(item?.id).startsWith("fr-") ? {} : { acct }), ...(linesOf(f).length ? { lines: linesOf(f) } : {}) };
         s.close();
         if (item) { commit({ ...data, items: data.items.map((x) => (x.id === item.id ? rec : x)) }); toast("改好了"); return; }
         if (makeShortcut) data = { ...data, shortcuts: [...data.shortcuts, { id: C.newId(), label: "", type: rec.type, cat: rec.cat, sub: rec.sub, pay: rec.pay, amt, note: rec.note }] };
@@ -331,12 +369,13 @@ function openForm(item = null, preset = {}) {
       }
     });
     el.addEventListener("input", (e) => { if (e.target.id === "f-note") f.note = e.target.value; if (e.target.id === "f-date") f.date = e.target.value; });
+    bindLines(el, f, draw);
   });
 }
 
 // 只打金額（長按一劃放手後、或捷徑沒有金額時）
 function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
-  const st = { expr: "", sub, note, date: today() };
+  const st = { expr: "", sub, note, date: today(), lines: [] };
   openSheet((el, s) => {
     const subs = catOf(type, cat)?.subs || [];
     const draw = () => {
@@ -344,11 +383,12 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
         ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === st.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
         <div class="amt-disp"></div>
         <div class="field"><label for="q-note">備註</label><input id="q-note" value="${esc(st.note)}" maxlength="200" placeholder="選填"></div>
+        ${linesHTML(st)}
         <div class="field"><label for="q-date">日期</label><input id="q-date" type="date" value="${esc(st.date)}"></div>
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
         s.close();
-        addItem({ id: C.newId(), type, amt, cat, sub: st.sub, pay: pay || "", date: st.date || today(), note: st.note.trim(), t: Date.now() });
+        addItem({ id: C.newId(), type, amt, cat, sub: st.sub, pay: pay || "", date: st.date || today(), note: st.note.trim(), t: Date.now(), ...(linesOf(st).length ? { lines: linesOf(st) } : {}) });
       });
     };
     draw();
@@ -359,16 +399,18 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
       if (t.dataset.sub !== undefined) { st.sub = st.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); }
     });
     el.addEventListener("input", (e) => { if (e.target.id === "q-note") st.note = e.target.value; if (e.target.id === "q-date") st.date = e.target.value; });
+    bindLines(el, st, draw);
   });
 }
 
 function useShortcut(sc) {
   if (sc.type === "move") {
     if (!(data.accounts.some((a) => a.id === sc.from) && data.accounts.some((a) => a.id === sc.to))) return toast("這個捷徑的帳戶不見了");
-    if (!sc.amt) return moveForm(null, { from: sc.from, to: sc.to, note: sc.note });
+    if (!sc.amt) return moveForm(null, { from: sc.from, to: sc.to, note: sc.note, fee: sc.fee });
     const rec = { id: C.newId(), from: sc.from, to: sc.to, amt: sc.amt, date: today(), note: sc.note || "", t: Date.now() };
-    commit({ ...data, moves: [...data.moves, rec] });
-    return toast(`已記：${scLabel(sc)} ${C.money(sc.amt)}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id) }) });
+    const fi = sc.fee ? feeRecord(data, sc.from, sc.fee, rec.date) : null;
+    commit({ ...(fi ? fi.data : data), moves: [...data.moves, rec], items: fi ? [...fi.data.items, fi.item] : data.items });
+    return toast(`已記：${scLabel(sc)} ${C.money(sc.amt)}${sc.fee ? `＋手續費 ${C.money(sc.fee)}` : ""}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id), items: data.items.filter((x) => x.id !== fi?.item.id) }) });
   }
   if (sc.amt > 0) return addItem(C.itemFromShortcut(sc, sc.amt, today()));
   quickAmount({ type: sc.type, cat: sc.cat, sub: sc.sub, pay: sc.pay, note: sc.note, title: C.shortcutLabel(sc) });
@@ -381,7 +423,7 @@ function wheelFriends() {
   if (!friendOn()) return [];
   const people = friendPeople(), key = (m) => m.g + "|" + m.uid;
   const saved = lsGet("ledger-friend-wheel", null);
-  return (Array.isArray(saved) ? people.filter((m) => saved.includes(key(m))) : people.slice(0, FRIEND_WHEEL_MAX)).slice(0, FRIEND_WHEEL_MAX);
+  return (Array.isArray(saved) ? saved.map((k) => people.find((m) => key(m) === k)).filter(Boolean) : people.slice(0, FRIEND_WHEEL_MAX)).slice(0, FRIEND_WHEEL_MAX);
 }
 function wheelLists() {
   const cats = data.wheel.cats.filter((c) => catOf("out", c));
@@ -485,7 +527,7 @@ function periodNav(extra = "") {
     <button class="icon-btn" data-per="1" aria-label="下一期"${ui.period >= cur ? " disabled" : ""}>${ico("chevron-right")}</button>${extra}</header>`;
 }
 function itemRow(x) {
-  const meta = [x.sub ? x.cat : "", x.type === "out" ? x.pay : "", x.note].filter(Boolean).join("・");
+  const meta = [x.sub ? x.cat : "", x.type === "out" ? x.pay : "", x.note, C.linesNote(x.lines || [])].filter(Boolean).join("・");
   return `<button class="item" data-item="${esc(x.id)}"><span class="cat-ico">${ico(catIcon(x.type, x.cat))}</span>
     <span style="min-width:0"><div class="name">${esc(x.sub || x.cat)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}</span>
     <span class="amt ${x.type}">${x.type === "in" ? "+" : "−"}${C.money(x.amt)}</span></button>`;
@@ -746,7 +788,12 @@ function entryList(list) {
     for (const x of C.friendBalances([e])) { const k = [x.from, x.to].sort().join("|"), sgn = x.from < x.to ? 1 : -1; net[k] = (net[k] || 0) + sgn * x.amt; }
     if (Object.values(net).every((v) => v === 0)) settled.add(e.id);
   }
-  const row = (e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
+  const tag = (e) => {               // 我支出裡那筆的分類（App 記的、我改過的）；沒有就照項目猜，猜到「其他」不顯示
+    if (e.kind === "pay") return "";
+    const mine = data.items.find((x) => x.id === "fr-" + e.id), c = mine || C.guessCat(e.item, data.cats);
+    return c.cat === "其他" && !c.sub ? "" : `${c.cat}${c.sub ? "・" + c.sub : ""}｜`;
+  };
+  const row = (e) => `<button class="list-row fe" data-fe="${esc(e.id)}"><span class="t">${esc(e.item)}<small>${esc(tag(e))}${esc(describeF(e))}・${mmdd(e.t)}${e.src === "App" ? "・App" : ""}${e.pending ? "・未上傳" : ""}</small></span>
     <span class="num${e.kind === "pay" ? " muted" : ""}">${C.money(e.amt)}</span></button>`;
   const line = (e) => `<div class="settle"><span>${mmdd(e.t)} 兩清</span></div>`;
   const render = (arr) => arr.map((e) => (settled.has(e.id) ? line(e) : "") + row(e)).join("");
@@ -789,7 +836,7 @@ function friendForm(kind, gid0 = ui.fg) {
   const okG = (g) => F.groups.some((x) => x.id === g) && F.members.some((m) => m.g === g && m.uid !== me);
   const gid = [gid0, last.g, ...F.groups.map((g) => g.id)].find((g) => g && okG(g));
   if (!gid) return toast("群組裡的其他人還沒在 LINE 說過話，等他們打一句「查詢」再記");
-  const st = { g: gid, mode: kind === "pay" ? "iPay" : last.mode && last.mode !== "iPay" && last.mode !== "theyPay" ? last.mode : "iOwe", who: "", payer: me, to: [], item: "", hint: null, expr: "" };
+  const st = { lines: [], g: gid, mode: kind === "pay" ? "iPay" : last.mode && last.mode !== "iPay" && last.mode !== "theyPay" ? last.mode : "iOwe", who: "", payer: me, to: [], item: "", hint: null, expr: "" };
   const setGroup = (g) => {
     st.g = g;
     const mem = F.members.filter((m) => m.g === g), others = mem.filter((m) => m.uid !== me);
@@ -824,7 +871,8 @@ function friendForm(kind, gid0 = ui.fg) {
         ${st.mode === "split" ? `<div class="field"><span class="lab">誰付的</span>${chips(mem, "fpay", (u) => u === st.payer)}</div><div class="field"><span class="lab">誰要分</span>${chips(mem, "fto", (u) => st.to.includes(u))}</div>`
           : `<div class="field"><span class="lab">${{ iOwe: "欠誰", theyOwe: "誰欠我", iPay: "還給誰", theyPay: "誰還我" }[st.mode]}</span>${chips(others, "fwho", (u) => u === st.who)}</div>`}
         ${kind === "pay" ? "" : `<div class="pick-row" style="padding:0 0 4px">${quick().map((x) => `<button class="chip${x === st.item ? " on" : ""}" data-fq="${esc(x)}">${esc(x)}</button>`).join("")}</div>
-          <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>`}
+          <div class="field"><label for="f-item">項目</label><input id="f-item" value="${esc(st.item)}" maxlength="40" placeholder="點上面的或自己打，例如：午餐"></div>
+          ${linesHTML(st)}`}
         ${kind === "pay" ? `<p class="small muted" style="margin:0 0 4px">${(() => { const n = netWith(st.g, st.who), nm = esc(fname(st.who, st.g)); return n < 0 ? `目前你欠 ${nm} ${N(-n)}` : n > 0 ? `目前 ${nm} 欠你 ${N(n)}` : `你和 ${nm} 目前兩清`; })()}</p>` : ""}
         <div class="amt-disp"></div>
         ${keypadHTML()}`;
@@ -837,7 +885,7 @@ function friendForm(kind, gid0 = ui.fg) {
             : st.mode === "theyPay" && amt > n ? `${nm} 只欠你 ${C.money(n)}，還 ${C.money(amt)} 會變成你欠 ${nm} ${C.money(amt - n)}。確定嗎？` : "";
           if (warn && !(await sure("確定這樣記？", warn, "照樣記"))) return;
         }
-        const item = kind === "pay" ? "還款" : st.item.trim();
+        const item = kind === "pay" ? "還款" : [st.item.trim(), C.linesNote(st.lines)].filter(Boolean).join(" ").slice(0, 40);
         if (!item) { toast("點一個項目或自己打，例如：午餐"); return; }
         const m = st.mode, payer = m === "iOwe" || m === "theyPay" ? st.who : m === "split" ? st.payer : me;
         const to = m === "split" ? st.to : m === "iOwe" || m === "theyPay" ? [me] : [st.who];
@@ -851,6 +899,7 @@ function friendForm(kind, gid0 = ui.fg) {
     };
     draw();
     el.addEventListener("input", (e) => { if (e.target.id === "f-item") { st.item = e.target.value; st.hint = null; } });
+    if (kind !== "pay") bindLines(el, st, draw);
     el.addEventListener("click", (e) => {
       const t = e.target.closest("button");
       if (!t) return;
@@ -872,7 +921,7 @@ function friendForm(kind, gid0 = ui.fg) {
 }
 // 扇形選單放手在「某人付」＋分類：記成「我欠某人」，金額打完就好
 function friendQuick(p, cat) {
-  const st = { expr: "", sub: "", note: "" };
+  const st = { expr: "", sub: "", note: "", lines: [] };
   openSheet((el, s) => {
     const subs = catOf("out", cat)?.subs || [];
     const draw = () => {
@@ -881,9 +930,10 @@ function friendQuick(p, cat) {
         ${subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${x === st.sub ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
         <div class="amt-disp"></div>
         <div class="field"><label for="fq-note">項目</label><input id="fq-note" value="${esc(st.note)}" maxlength="40" placeholder="選填，不寫就用「${esc(cat)}」"></div>
+        ${linesHTML(st)}
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
-        const me = fr().me, item = st.note.trim() || st.sub || cat;
+        const me = fr().me, item = ([st.note.trim(), C.linesNote(st.lines)].filter(Boolean).join(" ") || st.sub || cat).slice(0, 40);
         const e = { id: "A" + C.newId(), t: Date.now(), g: p.g, item, amt, payer: p.uid, to: [me], kind: "exp", by: me, src: "App", del: false };
         s.close();
         queueFriend({ op: "add", e }, e, { cat, sub: st.sub });
@@ -898,6 +948,7 @@ function friendQuick(p, cat) {
       if (t.dataset.sub !== undefined) { st.sub = st.sub === t.dataset.sub ? "" : t.dataset.sub; draw(); }
     });
     el.addEventListener("input", (e) => { if (e.target.id === "fq-note") st.note = e.target.value; });
+    bindLines(el, st, draw);
   });
 }
 function newGroupHelp() {
@@ -934,6 +985,13 @@ function acctRow() {
       ${data.accounts.length > 1 ? `<button class="btn acct-mv" data-move>${ico("repeat")}移動</button>` : ""}</div>
     ${bills.map(({ a, b }) => `<div class="note">${ico("credit-card")}<span>${esc(a.name)} 這期 <b class="num">${C.money(b.amount)}</b>，${Number(b.dueDate.slice(5, 7))}/${Number(b.dueDate.slice(8))} 要繳 <button data-paycard="${esc(a.id)}">已繳</button></span></div>`).join("")}`;
 }
+// 手續費那筆支出：其他・手續費，從 acct 扣（「其他」沒有「手續費」細項就加上）
+function feeRecord(d, acct, fee, date) {
+  let next = d;
+  const other = d.cats.out.find((c) => c.name === "其他");
+  if (other && !other.subs.includes("手續費")) next = C.setSubs(next, "out", "其他", [...other.subs, "手續費"]);
+  return { data: next, item: { id: C.newId(), type: "out", amt: fee, cat: other ? "其他" : d.cats.out.at(-1).name, sub: other ? "手續費" : "", pay: "", acct, date, note: "提款手續費", t: Date.now() } };
+}
 function moveRow(m) {
   return `<button class="item mv" data-move-id="${esc(m.id)}"><span class="cat-ico">${ico("repeat")}</span>
     <span style="min-width:0"><div class="name">${esc(C.moveLabel(data, m))}</div>${m.note ? `<div class="meta">${esc(m.note)}</div>` : ""}</span>
@@ -945,7 +1003,9 @@ function moveForm(m = null, preset = {}) {
   const last = lsGet("ledger-move-last", {}), has = (id) => data.accounts.some((a) => a.id === id);
   const from = [preset.from, last.from, "bank", data.accounts[0].id].find(has);
   const to = [preset.to, last.to, "cash", ...data.accounts.map((a) => a.id)].find((id) => has(id) && id !== from);
-  const st = m ? { ...m, expr: String(m.amt) } : { from, to, expr: preset.amt ? String(preset.amt) : "", date: today(), note: preset.note || "", sc: false };
+  const st = m ? { ...m, expr: String(m.amt), fee: "" } : { from, to, expr: preset.amt ? String(preset.amt) : "", date: today(), note: preset.note || "", sc: false, fee: preset.fee ? String(preset.fee) : "" };
+  const lastFee = lsGet("ledger-fee-last", 0);
+  const feeOn = () => !m && data.accounts.find((a) => a.id === st.from)?.type === "bank" && data.accounts.find((a) => a.id === st.to)?.type === "cash";   // 從銀行領現金才有手續費
   openSheet((el, s) => {
     const draw = () => {
       const chips = (attr, cur, skip) => `<div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.id !== skip).map((a) => `<button class="chip${a.id === cur ? " on" : ""}" data-${attr}="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div>`;
@@ -954,6 +1014,10 @@ function moveForm(m = null, preset = {}) {
         <div class="field"><span class="lab">從</span>${chips("mfrom", st.from)}</div>
         <div class="field"><span class="lab">到</span>${chips("mto", st.to, st.from)}</div>
         <div class="amt-disp"></div>
+        ${feeOn() ? `<div class="field"><span class="lab">手續費</span><div class="pick-row fee" style="padding:0">
+          <button class="chip${!+st.fee ? " on" : ""}" data-mfee="0">不用</button>${lastFee ? `<button class="chip${+st.fee === lastFee ? " on" : ""}" data-mfee="${lastFee}">${C.money(lastFee)}</button>` : ""}
+          <input id="m-fee" inputmode="numeric" value="${+st.fee && +st.fee !== lastFee ? esc(st.fee) : ""}" placeholder="其他金額" aria-label="手續費金額"></div>
+          <p class="small muted" style="margin:4px 0 0">手續費從「${esc(aName(st.from))}」扣，記成一筆支出（其他・手續費）</p></div>` : ""}
         <div class="field"><label for="m-date">日期</label><input id="m-date" type="date" value="${esc(st.date)}"></div>
         <div class="field"><label for="m-note">備註</label><input id="m-note" value="${esc(st.note)}" maxlength="200" placeholder="例如：提款、繳卡費"></div>
         ${m ? "" : `<label class="check"><input type="checkbox" data-msc${st.sc ? " checked" : ""}> 存成常用捷徑（首頁一點就記）</label>`}
@@ -961,12 +1025,16 @@ function moveForm(m = null, preset = {}) {
       bindKeypad(el, st, (amt) => {
         if (st.from === st.to) return toast("「從」和「到」要不一樣");
         const rec = { id: m?.id || C.newId(), from: st.from, to: st.to, amt, date: st.date || today(), note: st.note.trim(), t: m?.t || Date.now() };
+        const fee = feeOn() ? Math.max(0, Math.round(Number(st.fee) || 0)) : 0;
         s.close();
         lsSet("ledger-move-last", { from: rec.from, to: rec.to });
+        if (fee) lsSet("ledger-fee-last", fee);
         let next = { ...data, moves: m ? data.moves.map((x) => (x.id === m.id ? rec : x)) : [...data.moves, rec] };
-        if (st.sc) next = { ...next, shortcuts: [...next.shortcuts, { id: C.newId(), label: rec.note.slice(0, 12), type: "move", from: rec.from, to: rec.to, amt, note: rec.note }] };
+        if (st.sc) next = { ...next, shortcuts: [...next.shortcuts, { id: C.newId(), label: rec.note.slice(0, 12), type: "move", from: rec.from, to: rec.to, amt, note: rec.note, ...(fee ? { fee } : {}) }] };
+        const feeItem = fee ? feeRecord(next, rec.from, fee, rec.date) : null;
+        if (feeItem) next = { ...feeItem.data, items: [...feeItem.data.items, feeItem.item] };
         commit(next);
-        if (!m) toast(`已記：${C.moveLabel(data, rec)} ${C.money(amt)}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id) }) });
+        if (!m) toast(`已記：${C.moveLabel(data, rec)} ${C.money(amt)}${fee ? `＋手續費 ${C.money(fee)}` : ""}`, { label: "復原", run: () => commit({ ...data, moves: data.moves.filter((x) => x.id !== rec.id), items: data.items.filter((x) => x.id !== feeItem?.item.id) }) });
         else toast("改好了");
       });
     };
@@ -979,9 +1047,13 @@ function moveForm(m = null, preset = {}) {
       if (d.mfrom) { st.from = d.mfrom; if (st.to === st.from) st.to = data.accounts.find((a) => a.id !== st.from).id; draw(); }
       if (d.mto) { st.to = d.mto; draw(); }
       if (d.msc !== undefined) st.sc = t.checked;
+      if (d.mfee !== undefined) { st.fee = d.mfee; draw(); }
       if (d.mdel !== undefined && (await sure("刪除這筆移動？", `${C.moveLabel(data, m)} ${C.money(m.amt)}`, "刪除", "danger"))) { s.close(); commit({ ...data, moves: data.moves.filter((x) => x.id !== m.id) }); }
     });
-    el.addEventListener("input", (e) => { if (e.target.id === "m-note") st.note = e.target.value; if (e.target.id === "m-date") st.date = e.target.value; });
+    el.addEventListener("input", (e) => {
+      if (e.target.id === "m-note") st.note = e.target.value; if (e.target.id === "m-date") st.date = e.target.value;
+      if (e.target.id === "m-fee") { st.fee = e.target.value; el.querySelectorAll("[data-mfee]").forEach((b) => b.classList.toggle("on", +b.dataset.mfee === +st.fee || (!+st.fee && b.dataset.mfee === "0"))); }
+    });
   });
 }
 // 對帳：輸入現在實際有多少（信用卡是實際欠多少），差額可以記成支出／收入，或只改金額
@@ -1304,12 +1376,19 @@ function pgShortcuts() {
 
 // ---- 扇形選單
 function pgWheel() {
-  const box = (kind, name, on, i) => `<label class="check"><input type="checkbox" data-w${kind}="${esc(name)}"${on ? " checked" : ""}> ${esc(name)}${on ? ` <span class="small muted">（第 ${i + 1} 格）</span>` : ""}</label>`;
-  return `${subHead("扇形選單")}<p class="small muted">按住下面的 ＋ 往上劃：先經過內圈選付款方式（不劃過就用上次的），停在外圈的分類放手，再打金額就記好了。順序照「分類」頁的排序。</p>
-    <div class="sec-h"><span>內圈：付款方式（最多 ${C.WHEEL_MAX.pays} 個）</span></div>${data.pays.map((p) => box("pay", p, data.wheel.pays.includes(p), data.wheel.pays.indexOf(p))).join("")}
-    ${friendOn() ? `<div class="sec-h"><span>內圈：朋友（最多 ${FRIEND_WHEEL_MAX} 個）</span></div><p class="small muted" style="margin:0">劃過「某人付」再停在分類放手，就記成「我欠那個人」，會同步到 LINE 群組。</p>
-      ${friendPeople().map((m) => { const k = m.g + "|" + m.uid, on = wheelFriends().some((x) => x.g + "|" + x.uid === k); return `<label class="check"><input type="checkbox" data-wfr="${esc(k)}"${on ? " checked" : ""}> ${esc(fname(m.uid, m.g))}付 <span class="small muted">（${esc(fr().groups.find((g) => g.id === m.g)?.name || "")}）</span></label>`; }).join("")}` : ""}
-    <div class="sec-h"><span>外圈：支出分類（最多 ${C.WHEEL_MAX.cats} 個）</span></div>${data.cats.out.map((c) => box("cat", c.name, data.wheel.cats.includes(c.name), data.wheel.cats.indexOf(c.name))).join("")}`;
+  // 勾的照扇形裡的順序排在上面，旁邊有 ↑↓；沒勾的排在下面
+  const sec = (kind, all, cur, label = (x) => x, extra = () => "") => {
+    const on = cur.filter((x) => all.includes(x)), off = all.filter((x) => !on.includes(x));
+    return on.map((x, i) => `<div class="wrow"><label class="check"><input type="checkbox" data-w${kind}="${esc(x)}" checked> ${esc(label(x))}${extra(x)} <span class="small muted">（第 ${i + 1} 格）</span></label>
+        <button class="icon-btn" data-wmv="${kind}" data-wn="${esc(x)}" data-wd="-1" aria-label="往前"${i ? "" : " disabled"}>${ico("arrow-up")}</button><button class="icon-btn" data-wmv="${kind}" data-wn="${esc(x)}" data-wd="1" aria-label="往後"${i < on.length - 1 ? "" : " disabled"}>${ico("arrow-down")}</button></div>`).join("")
+      + off.map((x) => `<div class="wrow"><label class="check"><input type="checkbox" data-w${kind}="${esc(x)}"> ${esc(label(x))}${extra(x)}</label></div>`).join("");
+  };
+  const fk = (m) => m.g + "|" + m.uid, people = friendOn() ? friendPeople() : [], pm = (k) => people.find((m) => fk(m) === k);
+  return `${subHead("扇形選單")}<p class="small muted">按住下面的 ＋ 往上劃：先經過內圈選付款方式（不劃過就用上次的），停在外圈的分類放手，再打金額就記好了。勾的項目可以用 ↑↓ 調整在扇形裡的順序（第 1 格在最左邊）。</p>
+    <div class="sec-h"><span>內圈：付款方式（最多 ${C.WHEEL_MAX.pays} 個）</span></div>${sec("pay", data.pays, data.wheel.pays)}
+    ${people.length ? `<div class="sec-h"><span>內圈：朋友（最多 ${FRIEND_WHEEL_MAX} 個，排在付款方式後面）</span></div><p class="small muted" style="margin:0">劃過「某人付」再停在分類放手，就記成「我欠那個人」，會同步到 LINE 群組。</p>
+      ${sec("fr", people.map(fk), wheelFriends().map(fk), (k) => fname(pm(k).uid, pm(k).g) + "付", (k) => ` <span class="small muted">（${esc(fr().groups.find((g) => g.id === pm(k).g)?.name || "")}）</span>`)}` : ""}
+    <div class="sec-h"><span>外圈：支出分類（最多 ${C.WHEEL_MAX.cats} 個）</span></div>${sec("cat", data.cats.out.map((c) => c.name), data.wheel.cats)}`;
 }
 
 // ---- 主題
@@ -1443,6 +1522,12 @@ async function onClick(e) {
   if (d.acct) return acctForm(data.accounts.find((x) => x.id === d.acct));
   if (d.newacct !== undefined) return acctForm();
   if (d.preset !== undefined) { if (await sure("快速設定帳戶？", "建立「郵局、錢包、信用卡」三個帳戶：現金從錢包扣、信用卡記在卡上、其他付款方式從郵局扣，收入存進郵局。名稱和金額之後都可以改。", "設定")) { commit(C.presetAccounts(data)); toast("設好了，點帳戶填現在有多少錢"); } return; }
+  if (d.wmv) {
+    const dir = +d.wd, name = d.wn;
+    if (d.wmv === "fr") lsSet("ledger-friend-wheel", C.moveIn(wheelFriends().map((m) => m.g + "|" + m.uid), name, dir));
+    else { const key = d.wmv === "pay" ? "pays" : "cats"; data = { ...data, wheel: { ...data.wheel, [key]: C.moveIn(data.wheel[key], name, dir) } }; }
+    return commit(data);
+  }
   if (d.delsc) { if (await sure("刪除這個捷徑？", "", "刪除", "danger")) commit({ ...data, shortcuts: data.shortcuts.filter((x) => x.id !== d.delsc) }); return; }
   if (d.sc) { const sc = data.shortcuts.find((x) => x.id === d.sc); if (sc) useShortcut(sc); return; }
   if (d.goto) return go("more", d.goto);
@@ -1529,8 +1614,7 @@ function onChange(e) {
     let list = data.wheel[key].filter((x) => x !== name);
     if (t.checked) {
       if (list.length >= max) { t.checked = false; return toast(`最多 ${max} 個，先取消一個`); }
-      const order = isPay ? data.pays : data.cats.out.map((c) => c.name);
-      list = order.filter((x) => list.includes(x) || x === name);
+      list = [...list, name];
     }
     return commit({ ...data, wheel: { ...data.wheel, [key]: list } });
   }

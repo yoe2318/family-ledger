@@ -174,7 +174,7 @@ export const goalProgress = (g) => (g.target > 0 ? Math.min(1, goalSaved(g) / g.
 export function searchItems(items, q) {
   const words = String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  return sortItems(items.filter((x) => words.every((w) => (/^\d+$/.test(w) ? String(x.amt) === w : [x.note, x.cat, x.sub, x.pay].some((f) => String(f || "").toLowerCase().includes(w))))));
+  return sortItems(items.filter((x) => words.every((w) => (/^\d+$/.test(w) ? String(x.amt) === w : [x.note, x.cat, x.sub, x.pay, linesNote(x.lines || [])].some((f) => String(f || "").toLowerCase().includes(w))))));
 }
 export const shortcutLabel = (sc) => sc.label || sc.sub || sc.cat;
 export function itemFromShortcut(sc, amt, date = ymd()) {
@@ -278,7 +278,7 @@ export function cleanData(raw) {
   for (const x of raw.items) {
     if (!x || (x.type !== "out" && x.type !== "in") || !(int(x.amt) > 0) || !isDate(x.date)) continue;
     items.push({ id: str(x.id || newId(), 60), type: x.type, amt: int(x.amt), cat: str(x.cat || "其他", 12), sub: str(x.sub, 12), pay: str(x.pay, 12),
-      date: x.date, note: str(x.note, 200), t: Number(x.t) || 0, ...(x.rec ? { rec: str(x.rec, 60) } : {}), ...(typeof x.acct === "string" && x.acct ? { acct: str(x.acct, 20) } : {}) });
+      date: x.date, note: str(x.note, 200), t: Number(x.t) || 0, ...(x.rec ? { rec: str(x.rec, 60) } : {}), ...(typeof x.acct === "string" && x.acct ? { acct: str(x.acct, 20) } : {}), ...(cleanLines(x.lines).length ? { lines: cleanLines(x.lines) } : {}) });
   }
   const cats = {};
   for (const k of ["out", "in"]) {
@@ -292,7 +292,7 @@ export function cleanData(raw) {
   const okType = (x) => x && (x.type === "out" || x.type === "in");
   const accounts = cleanAccounts(raw.accounts), aid = new Set(accounts.map((a) => a.id)), okA = (v) => (aid.has(v) ? v : "");
   const shortcuts = (Array.isArray(raw.shortcuts) ? raw.shortcuts : []).filter((s) => okType(s) || (s?.type === "move" && okA(s.from) && okA(s.to) && s.from !== s.to)).map((s) => (s.type === "move"
-    ? { id: str(s.id || newId(), 60), label: str(s.label, 12), type: "move", from: s.from, to: s.to, amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200) }
+    ? { id: str(s.id || newId(), 60), label: str(s.label, 12), type: "move", from: s.from, to: s.to, amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200), ...(int(s.fee) > 0 ? { fee: int(s.fee) } : {}) }
     : { id: str(s.id || newId(), 60), label: str(s.label, 12), type: s.type, cat: str(s.cat, 12), sub: str(s.sub, 12), pay: str(s.pay, 12), amt: int(s.amt) > 0 ? int(s.amt) : 0, note: str(s.note, 200) }));
   const payAcct = {};
   for (const [k, v] of Object.entries(raw.payAcct || {})) if (pays.includes(k) && okA(v)) payAcct[k] = v;
@@ -336,7 +336,7 @@ export function toCSV(items, moves = [], acctName = (id) => id) {
   const q = (s) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const rows = [["日期", "收支", "分類", "細項", "付款方式", "金額", "備註"],
     ...sortItems([...items, ...moves.map((m) => ({ ...m, type: "move" }))]).reverse().map((x) => (x.type === "move" ? [x.date, "移動", `${acctName(x.from)} → ${acctName(x.to)}`, "", "", String(x.amt), x.note || ""]
-      : [x.date, x.type === "in" ? "收入" : "支出", x.cat, x.sub || "", x.pay || "", String(x.amt), x.note || ""]))];
+      : [x.date, x.type === "in" ? "收入" : "支出", x.cat, x.sub || "", x.pay || "", String(x.amt), [x.note, linesNote(x.lines || [])].filter(Boolean).join("｜")]))];
   return "﻿" + rows.map((r) => r.map((c) => q(String(c))).join(",")).join("\r\n");
 }
 // 提醒備份：有 10 筆以上、而且超過 30 天沒匯出（從來沒有也算）
@@ -565,4 +565,28 @@ export function parseCode(text) {
   if (/^[2-9A-HJKMNP-Z]{8}$/.test(k)) return { url: FRIEND_API, key: k };
   if (/^[0-9a-f]{20}$/i.test(k)) return { url: FRIEND_API, key: k.toLowerCase() };
   return null;
+}
+
+// ---------------------------------------------------------------- 備註明細（店家｜吃了什麼｜金額）
+// 每列 { shop, what, amt }；三格都空的列丟掉；金額只收正整數（沒寫＝0）
+export function cleanLines(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((l) => ({ shop: String(l?.shop ?? "").trim().slice(0, 20), what: String(l?.what ?? "").trim().slice(0, 30), amt: Math.max(0, Math.round(Number(l?.amt) || 0)) }))
+    .filter((l) => l.shop || l.what || l.amt).slice(0, 10);
+}
+export const linesTotal = (lines) => cleanLines(lines).reduce((a, l) => a + l.amt, 0);
+// 「麥味登 蛋餅奶茶 75 ＋ 7-11 咖啡 45」
+export const linesNote = (lines) => cleanLines(lines).map((l) => [l.shop, l.what, l.amt ? String(l.amt) : ""].filter(Boolean).join(" ")).join(" ＋ ");
+// 最近用過的店家（新的在前、不重複），給輸入框的建議清單
+export function recentShops(items, n = 20) {
+  const out = [];
+  for (const x of [...items].sort((a, b) => (b.t || 0) - (a.t || 0))) for (const l of x.lines || []) if (l.shop && !out.includes(l.shop)) { out.push(l.shop); if (out.length >= n) return out; }
+  return out;
+}
+// 清單裡把 name 往前（dir=-1）或往後（+1）移一格
+export function moveIn(list, name, dir) {
+  const a = [...list], i = a.indexOf(name), j = i + dir;
+  if (i < 0 || j < 0 || j >= a.length) return a;
+  [a[i], a[j]] = [a[j], a[i]];
+  return a;
 }

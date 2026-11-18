@@ -225,5 +225,23 @@ eq("連動碼：整條連結", C.parseCode("https://yoe2318.github.io/family-led
 eq("連動碼：亂打不收", [C.parseCode("1234"), C.parseCode("K7P2-9QX0"), C.parseCode("")], [null, null, null]);
 eq("朋友快取保留機器人 ID", C.cleanFriends({ me: "a", bot: "@abc123" }).bot, "@abc123");
 
+// ---- 1.4：明細、扇形順序、手續費捷徑
+eq("明細：空列丟掉、金額整數", C.cleanLines([{ shop: " 麥味登 ", what: "蛋餅奶茶", amt: "75" }, { shop: "", what: "", amt: "" }, { shop: "7-11", what: "咖啡", amt: 45.4 }, { what: "水", amt: -3 }]),
+  [{ shop: "麥味登", what: "蛋餅奶茶", amt: 75 }, { shop: "7-11", what: "咖啡", amt: 45 }, { shop: "", what: "水", amt: 0 }]);
+eq("明細：加總", C.linesTotal([{ shop: "a", what: "", amt: 75 }, { shop: "b", what: "", amt: 45 }]), 120);
+eq("明細：串成備註", C.linesNote([{ shop: "麥味登", what: "蛋餅奶茶", amt: 75 }, { shop: "7-11", what: "咖啡", amt: 45 }, { shop: "", what: "水", amt: 0 }]), "麥味登 蛋餅奶茶 75 ＋ 7-11 咖啡 45 ＋ 水");
+eq("最近的店家", C.recentShops([{ t: 1, lines: [{ shop: "A" }, { shop: "B" }] }, { t: 2, lines: [{ shop: "C" }, { shop: "A" }] }, { t: 3 }]), ["C", "A", "B"]);
+eq("扇形順序：往前、往後、到頭不動", [C.moveIn(["a", "b", "c"], "b", -1), C.moveIn(["a", "b", "c"], "b", 1), C.moveIn(["a", "b", "c"], "a", -1), C.moveIn(["a", "b"], "x", 1)], [["b", "a", "c"], ["a", "c", "b"], ["a", "b", "c"], ["a", "b"]]);
+{
+  const raw = { items: [{ id: "1", type: "out", amt: 120, cat: "餐飲", date: "2026-11-18", lines: [{ shop: "麥味登", what: "蛋餅", amt: 75 }, {}] }, { id: "2", type: "out", amt: 5, cat: "餐飲", date: "2026-11-18", lines: [] }],
+    accounts: [{ id: "bank", name: "郵局", type: "bank", open: 0 }, { id: "cash", name: "錢包", type: "cash", open: 0 }],
+    shortcuts: [{ id: "s", type: "move", from: "bank", to: "cash", amt: 1000, fee: 15 }, { id: "t", type: "move", from: "bank", to: "cash", amt: 500, fee: -1 }] };
+  const c = C.cleanData(raw);
+  eq("備份：明細留著、空的不留", [c.items[0].lines, "lines" in c.items[1]], [[{ shop: "麥味登", what: "蛋餅", amt: 75 }], false]);
+  eq("備份：移動捷徑的手續費", [c.shortcuts[0].fee, "fee" in c.shortcuts[1]], [15, false]);
+}
+
+eq("搜尋找得到明細裡的店家", C.searchItems([{ id: "1", type: "out", amt: 5, cat: "餐飲", date: "2026-11-01", note: "", lines: [{ shop: "麥味登", what: "蛋餅", amt: 5 }] }], "麥味登").length, 1);
+eq("CSV 備註有明細", C.toCSV([{ id: "1", type: "out", amt: 5, cat: "餐飲", date: "2026-11-01", note: "早餐", lines: [{ shop: "麥味登", what: "蛋餅", amt: 5 }] }]).includes("早餐｜麥味登 蛋餅 5"), true);
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

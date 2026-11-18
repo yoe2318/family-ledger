@@ -320,3 +320,16 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .settle::before, .settle::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
 details.old { margin-top: 4px; }
 details.old summary { padding: 8px 0; cursor: pointer; }
+/* 備註明細表 */
+.lines { margin: 4px 0 8px; }
+.line { display: grid; grid-template-columns: 1fr 1.3fr 64px 32px; gap: 4px; align-items: center; margin-bottom: 4px; }
+.line input { min-width: 0; padding: 8px; font-size: 15px; }
+.line .la { font-family: var(--font-mono); text-align: right; }
+.line .icon-btn { width: 32px; height: 32px; color: var(--muted); }
+/* 扇形設定的順序按鈕 */
+.wrow { display: flex; align-items: center; gap: 4px; }
+.wrow .check { flex: 1; }
+.wrow .icon-btn { width: 36px; height: 36px; color: var(--muted); }
+.wrow .icon-btn:disabled { opacity: .3; }
+.pick-row.fee { align-items: center; flex-wrap: wrap; }
+.pick-row.fee input { width: 96px; padding: 6px 8px; }
