@@ -1,7 +1,7 @@
 // 讓記帳本沒網路也能打開：第一次打開時把所有檔案存在手機裡。
 // 之後打開：有網路就跟網站拿最新的（順便更新存著的那份），3 秒沒回應或沒網路才用存著的。
 // 所以改版後家人重開 App 就是新版；改了要上線時把 VERSION 也改一下，舊的存檔才會清掉。
-const VERSION = "ledger-1.5.4";
+const VERSION = "ledger-1.5.5";
 const FILES = ["./", "index.html", "app.js", "core.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-180.png"];
 const FONTS = ["https://fonts.googleapis.com/", "https://fonts.gstatic.com/"];
 

@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.4";
+const VERSION = "1.5.5";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1810,21 +1810,32 @@ async function importBackup(file) {
 
 // ================================================================ 畫面
 const TABS = [["home", "notebook", "記帳"], ["stats", "chart", "統計"], ["fab"], ["cal", "calendar", "月曆"], ["more", "menu", "更多"]];
-let main, nav;
+let main, nav, pill, pillAt = null;
+// 四個分頁的順序（左右滑照這個順序換）和在導覽列的第幾欄（中間第 2 欄是記帳按鈕）
+const TAB_ORDER = ["home", "stats", "cal", "more"], TAB_COL = { home: 0, stats: 1, cal: 3, more: 4 };
+// 膠囊移到某一欄；drag＝跟著手指（不要動畫）
+function pillTo(pos, drag = false) {
+  if (!pill) return;
+  pill.classList.toggle("drag", drag);
+  pill.style.setProperty("--pos", pos);
+}
 function render() {
   const html = ui.tab === "stats" ? renderStats() : ui.tab === "cal" ? renderCal() : ui.tab === "more" ? renderMore() : renderHome();
   main.innerHTML = html;
   main.classList.toggle("swipe-x", ui.tab === "cal");
   main.classList.toggle("home", ui.tab === "home" && ui.search === null);
   nav.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === ui.tab));
+  const col = TAB_COL[ui.tab];
+  if (pillAt !== null && col !== pillAt) { pill.classList.remove("moving"); void pill.offsetWidth; pill.classList.add("moving"); setTimeout(() => pill.classList.remove("moving"), 400); }
+  pillAt = col; pillTo(col);
   if (ui.search !== null) { const q = $("#q"); if (q && document.activeElement !== q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 }
 function buildShell() {
   document.body.innerHTML = `<main class="app" id="main"></main>
-    <nav class="bottom" aria-label="主要功能"><div class="in">${TABS.map(([id, icon, t]) => (id === "fab"
+    <nav class="bottom" aria-label="主要功能"><div class="in"><i class="pill" aria-hidden="true"></i>${TABS.map(([id, icon, t]) => (id === "fab"
       ? `<div class="fab-wrap"><button class="fab" id="fab" aria-label="記一筆（按住往上劃可以快速選分類）">${ico("plus")}</button></div>`
       : `<button class="tab" data-tab="${id}">${ico(icon)}<span>${t}</span></button>`)).join("")}</div></nav>`;
-  main = $("#main"); nav = $(".bottom");
+  main = $("#main"); nav = $(".bottom"); pill = nav.querySelector(".pill");
   bindFab($("#fab"));
   nav.addEventListener("click", (e) => { const t = e.target.closest("[data-tab]")?.dataset.tab; if (t && t !== ui.tab) go(t); else if (t === "more" && ui.more) go("more"); });
   main.addEventListener("click", onClick);
@@ -1858,18 +1869,36 @@ function buildShell() {
   };
   main.addEventListener("pointerup", wend);
   main.addEventListener("pointercancel", () => { wd = null; render(); });
-  // 月曆左右滑換月份（只看水平方向明顯的滑動，上下捲動不受影響）
-  // 月曆左右滑換月份：在手指移動時就判斷（有些手機把橫向滑動拿去做自己的手勢，只送 touchcancel、不送 touchend）
-  // 記帳、統計頁：在上面的年月那條左右滑換一期（不能滑到這期之後）
+  // 左右滑（在手指移動時就判斷：有些手機把橫向滑動拿去做自己的手勢，只送 touchcancel、不送 touchend）
+  //   月曆的格子、年月那條 → 換月份；記帳／統計上面的年月那條 → 換一期（不能滑到這期之後）
+  //   其他地方 → 換分頁（記帳 → 統計 → 月曆 → 更多），膠囊跟著手指走
   let sw = null;
   const swStart = (x, y, t) => {
-    if (t.closest("input, select, .sheet")) { sw = null; return; }
-    const kind = ui.tab === "cal" ? "cal" : t.closest(".top")?.querySelector("[data-per]") ? "per" : null;
-    sw = kind ? { x, y, kind, done: false } : null;
+    sw = null;
+    if (t.closest("input, select, textarea, .sheet, .chips, [data-ew], .crop-stage, .mgrid")) return;
+    const kind = ui.tab === "cal" && t.closest(".cal, .cal-w, .top") ? "cal"
+      : t.closest(".top")?.querySelector("[data-per]") ? "per"
+      : ui.more === null && ui.search === null && TAB_ORDER.includes(ui.tab) ? "tab" : null;
+    if (kind) sw = { x, y, kind, done: false, drag: false };
   };
+  const nextTab = (n) => TAB_ORDER[TAB_ORDER.indexOf(ui.tab) + n];
   const swMove = (x, y) => {
     if (!sw || sw.done) return;
     const dx = x - sw.x, dy = y - sw.y;
+    if (sw.kind === "tab") {
+      if (!sw.drag && Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { sw = null; return; }   // 在上下捲動
+      if (!sw.drag && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.3) sw.drag = true;
+      if (!sw.drag) return;
+      const n = dx < 0 ? 1 : -1, to = nextTab(n), from = TAB_COL[ui.tab];
+      const k = Math.min(1, Math.abs(dx) / 140);
+      pillTo(to ? from + (TAB_COL[to] - from) * k * 0.6 : from + n * Math.min(0.25, k * 0.4), true);   // 最邊邊只拉一點點
+      if (Math.abs(dx) > 70 && to) {
+        sw.done = true;
+        go(to);
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) { main.classList.remove("in-r", "in-l"); void main.offsetWidth; main.classList.add(n > 0 ? "in-r" : "in-l"); setTimeout(() => main.classList.remove("in-r", "in-l"), 260); }
+      }
+      return;
+    }
     if (!(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3)) return;
     sw.done = true;
     const n = dx < 0 ? 1 : -1;
@@ -1877,11 +1906,12 @@ function buildShell() {
     if (n > 0 && ui.period >= periodNow()) return toast("已經是這一期了");
     ui.period = C.addMonths(ui.period, n); ui.openCat = null; render();
   };
-  main.addEventListener("touchstart", (e) => { if (e.touches.length === 1) swStart(e.touches[0].clientX, e.touches[0].clientY, e.target); else sw = null; }, { passive: true });
+  const swEnd = () => { if (sw && sw.kind === "tab" && !sw.done) pillTo(TAB_COL[ui.tab]); sw = null; };
+  main.addEventListener("touchstart", (e) => { if (e.touches.length === 1) swStart(e.touches[0].clientX, e.touches[0].clientY, e.target); else swEnd(); }, { passive: true });
   main.addEventListener("touchmove", (e) => { if (e.touches.length === 1) swMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
   main.addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && !sw) swStart(e.clientX, e.clientY, e.target); });
   main.addEventListener("pointermove", (e) => { if (e.pointerType === "touch") swMove(e.clientX, e.clientY); });
-  for (const ev of ["touchend", "touchcancel", "pointerup", "pointercancel"]) main.addEventListener(ev, () => { if (sw?.done || ev.startsWith("touch")) sw = null; }, { passive: true });
+  for (const ev of ["touchend", "touchcancel"]) main.addEventListener(ev, swEnd, { passive: true });
 }
 
 async function onClick(e) {

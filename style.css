@@ -129,7 +129,24 @@ h3 { font-size: var(--fs-h3); line-height: var(--lh-tight); margin: 24px 0 8px; 
 .bottom .in { max-width: 640px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; }
 .bottom .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 6px; border: 0; border-top: 2px solid transparent; background: none; color: var(--muted); font-size: 11.5px; }
 .bottom .tab .ico { width: 22px; height: 22px; }
-.bottom .tab.on { color: var(--ink); border-top-color: var(--accent); font-weight: 700; }
+.bottom .tab.on { color: var(--accent-ink); font-weight: 700; }
+.bottom .in { position: relative; }
+.bottom .tab, .fab-wrap { position: relative; z-index: 1; }
+.fab-wrap { z-index: 2; }
+/* 滑動膠囊：選中的分頁底下一塊淡主色，換分頁時滑過去（中途拉長一下再縮回來），左右滑時跟著手指 */
+.bottom .pill { position: absolute; left: 0; top: 4px; bottom: 4px; width: 20%; z-index: 0; pointer-events: none;
+  transform: translateX(calc(var(--pos, 0) * 100%)); transition: transform .38s cubic-bezier(.3, 1.35, .5, 1); }
+.bottom .pill::before { content: ""; position: absolute; inset: 0 10px; border-radius: 999px; background: var(--accent-soft); }
+.bottom .pill.drag { transition: none; }
+.bottom .pill.moving::before { animation: pill-stretch .38s ease-out; }
+@keyframes pill-stretch { 35% { transform: scaleX(1.3); } }
+body.has-bgimg .bottom .pill::before { background: color-mix(in srgb, var(--accent-soft) 80%, transparent); }
+/* 滑螢幕換分頁：新的頁面從那一邊滑進來 */
+main.in-r { animation: page-in-r .24s ease-out; }
+main.in-l { animation: page-in-l .24s ease-out; }
+@keyframes page-in-r { from { transform: translateX(36px); opacity: .35; } }
+@keyframes page-in-l { from { transform: translateX(-36px); opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .bottom .pill { transition: none; } .bottom .pill.moving::before, main.in-r, main.in-l { animation: none; } }
 .fab-wrap { display: grid; place-items: center; padding-bottom: 6px; }
 .fab { width: 60px; height: 60px; margin-top: -24px; border-radius: 50%; border: 4px solid var(--bg); background: var(--accent); color: var(--on-accent); display: grid; place-items: center;
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -356,7 +373,7 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .cats .cat-add { border-style: dashed; color: var(--accent-ink); }
 .chip.add { border-style: dashed; color: var(--accent-ink); }
 /* 月曆左右滑：左右交給 App，上下照常捲動 */
-main.swipe-x { touch-action: pan-y; }
+main.app { touch-action: pan-y; }
 /* 滑進來的動畫不能讓畫面變寬（變寬的話手機會縮放，下面的導覽列就被切到）；上面年月那條也可以左右滑 */
 html, .app { overflow-x: clip; }
 .app .top { touch-action: pan-y; }
