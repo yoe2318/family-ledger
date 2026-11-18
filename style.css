@@ -351,3 +351,6 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 .wed-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--r-sm); background: var(--accent-soft); font-size: 14px; }
 .wed-bar span { flex: 1; min-width: 160px; }
 .chip.add .ico { width: 14px; height: 14px; }
+/* 記帳畫面直接新增分類、細項 */
+.cats .cat-add { border-style: dashed; color: var(--accent-ink); }
+.chip.add { border-style: dashed; color: var(--accent-ink); }

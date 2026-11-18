@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.3";
+const VERSION = "1.4.4";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -327,7 +327,16 @@ function switchRec(s, rt) {
 }
 const sheetFor = (into) => (into ? (b) => into.swap(b) : openSheet);
 // 細項多選的小按鈕（存成「早餐＋午餐」）
-const subChips = (subs, cur) => (subs.length ? `<div class="pick-row">${subs.map((x) => `<button class="chip${C.subParts(cur).includes(x) ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : "");
+const subChips = (subs, cur, edit = false) => (subs.length || edit ? `<div class="pick-row">${subs.map((x) => `<button class="chip${C.subParts(cur).includes(x) ? " on" : ""}" data-sub="${esc(x)}">${esc(x)}</button>`).join("")}
+  ${edit ? `<button class="chip add" data-snew aria-label="新增細項">${ico("plus")}${subs.length ? "" : "細項"}</button><button class="chip add" data-cedcur aria-label="修改這個分類">${ico("pencil")}</button>` : ""}</div>` : "");
+// 記帳畫面直接加細項：打名字 → 加進這個分類，回傳新細項（沒加就 null）
+async function addSubTo(type, cat) {
+  const v = (await ask(`新增「${cat}」的細項`, "例如：宵夜、早午餐", [["no", "取消"], ["ok", "新增", "primary"]], ""))?.trim().slice(0, 12);
+  const c = catOf(type, cat);
+  if (!v || !c) return null;
+  if (!c.subs.includes(v)) commit(C.setSubs(data, type, cat, [...c.subs, v]));
+  return v;
+}
 const toggleSub = (cur, x, subs) => { const on = C.subParts(cur); return subs.filter((y) => (y === x ? !on.includes(x) : on.includes(y))).join("＋"); };
 function addItem(item, msg) {
   if (!item.acct && !String(item.id).startsWith("fr-")) item = { ...item, acct: C.acctFor(data, item.type, item.pay) };   // 從哪個帳戶扣：照當下設定，之後改設定不影響這筆
@@ -350,8 +359,8 @@ function openForm(item = null, preset = {}, into = null) {
         <div class="sheet-h">${item ? `<div class="seg" role="tablist"><button data-type="out" class="${f.type === "out" ? "on" : ""}">支出</button><button data-type="in" class="${f.type === "in" ? "on" : ""}">收入</button></div>` : recTabs(f.type)}
           <h3></h3>${item ? `<button class="btn text danger" data-del>${ico("trash")}刪除</button>` : ""}<button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <div class="amt-disp"></div>
-        <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}</div>
-        ${subChips(subs, f.sub)}
+        <div class="cats">${data.cats[f.type].map((c) => `<button data-cat="${esc(c.name)}" class="${c.name === f.cat ? "on" : ""}">${ico(c.icon)}<span>${esc(c.name)}</span></button>`).join("")}<button data-cnew class="cat-add">${ico("plus")}<span>新增</span></button></div>
+        ${subChips(subs, f.sub, true)}
         ${f.type === "in" && data.accounts.length > 1 ? `<div class="field"><span class="lab">存入</span><div class="pick-row" style="padding:0">${data.accounts.filter((a) => a.type !== "card").map((a) => `<button class="chip${a.id === f.acct ? " on" : ""}" data-iacct="${esc(a.id)}">${esc(a.name)}</button>`).join("")}</div></div>` : ""}
         ${f.type === "out" ? `<div class="field"><span class="lab">付款方式${data.accounts.length > 1 ? `<small class="acct-hint">從${esc(aName(C.acctFor(data, "out", f.pay)))}扣</small>` : ""}</span><div class="pick-row" style="padding:0">${data.pays.map((p) => `<button class="chip${p === f.pay ? " on" : ""}" data-pay="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : ""}
         <div class="field"><label for="f-date">日期</label><input id="f-date" type="date" value="${esc(f.date)}" max="2100-12-31"></div>
@@ -385,6 +394,13 @@ function openForm(item = null, preset = {}, into = null) {
       }
       if (t.dataset.cat) { if (f.cat !== t.dataset.cat) { f.cat = t.dataset.cat; f.sub = ""; } draw(); return; }
       if (t.dataset.sub !== undefined) { f.sub = toggleSub(f.sub, t.dataset.sub, catOf(f.type, f.cat)?.subs || []); draw(); return; }
+      if (t.dataset.cnew !== undefined) return catForm(f.type, null, (name) => { if (name) { f.cat = name; f.sub = ""; } draw(); });
+      if (t.dataset.snew !== undefined) { const v = await addSubTo(f.type, f.cat); if (v) f.sub = [...C.subParts(f.sub), v].join("＋"); return draw(); }
+      if (t.dataset.cedcur !== undefined) return catForm(f.type, catOf(f.type, f.cat), (name) => {
+        f.cat = name && catOf(f.type, name) ? name : data.cats[f.type][0]?.name || "其他";
+        const ok = catOf(f.type, f.cat)?.subs || []; f.sub = C.subParts(f.sub).filter((x) => ok.includes(x)).join("＋");
+        draw();
+      });
       if (t.dataset.pay !== undefined) { f.pay = f.pay === t.dataset.pay ? "" : t.dataset.pay; draw(); return; }
       if (t.dataset.sc !== undefined) { makeShortcut = t.checked; return; }
       if (t.dataset.del !== undefined) {
@@ -404,12 +420,12 @@ function openForm(item = null, preset = {}, into = null) {
 function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
   const st = { expr: "", sub, note, date: today(), lines: [] };
   openSheet((el, s) => {
-    const subs = catOf(type, cat)?.subs || [];
+    const subsOf = () => catOf(type, cat)?.subs || [];
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><h3>${esc(title || `${pay ? pay + "・" : ""}${cat}`)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
-        ${subChips(subs, st.sub)}
+        ${subChips(subsOf(), st.sub, true)}
         <div class="amt-disp"></div>
-        ${linesHTML(st, subs)}
+        ${linesHTML(st, subsOf())}
         <div class="field"><label for="q-note">備註</label><input id="q-note" value="${esc(st.note)}" maxlength="200" placeholder="選填"></div>
         <div class="field"><label for="q-date">日期</label><input id="q-date" type="date" value="${esc(st.date)}"></div>
         ${keypadHTML()}`;
@@ -419,11 +435,17 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
       });
     };
     draw();
-    el.addEventListener("click", (e) => {
+    el.addEventListener("click", async (e) => {
       const t = e.target.closest("button");
       if (!t) return;
       if (t.dataset.close !== undefined) s.close();
-      if (t.dataset.sub !== undefined) { st.sub = toggleSub(st.sub, t.dataset.sub, subs); draw(); }
+      if (t.dataset.sub !== undefined) { st.sub = toggleSub(st.sub, t.dataset.sub, subsOf()); draw(); }
+      if (t.dataset.snew !== undefined) { const v = await addSubTo(type, cat); if (v) st.sub = [...C.subParts(st.sub), v].join("＋"); draw(); }
+      if (t.dataset.cedcur !== undefined) catForm(type, catOf(type, cat), (name) => {
+        cat = name && catOf(type, name) ? name : catOf(type, "其他") ? "其他" : data.cats[type][0].name;
+        st.sub = C.subParts(st.sub).filter((x) => subsOf().includes(x)).join("＋");
+        draw();
+      });
     });
     el.addEventListener("input", (e) => { if (e.target.id === "q-note") st.note = e.target.value; if (e.target.id === "q-date") st.date = e.target.value; });
     bindLines(el, st, draw);
@@ -1356,7 +1378,7 @@ function pgCats() {
       <button class="icon-btn" data-cedit="${esc(c.name)}" aria-label="修改">${ico("pencil")}</button></div>`).join("")}
     <div class="row-btns"><button class="btn grow" data-cadd>${ico("plus")}新增分類</button></div>`;
 }
-function catForm(type, c = null) {
+function catForm(type, c = null, onSaved = null) {
   const f = { name: c?.name || "", icon: c?.icon || "ellipsis", subs: (c?.subs || []).join("\n") };
   openSheet((el, s) => {
     el.innerHTML = `<div class="sheet-h"><h3>${c ? "修改分類" : "新增分類"}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
@@ -1372,7 +1394,7 @@ function catForm(type, c = null) {
       if (t.dataset.cdel !== undefined) {
         const n = data.items.filter((x) => x.type === type && x.cat === c.name).length;
         if (!(await sure(`刪除「${c.name}」？`, n ? `用到它的 ${n} 筆紀錄會改成「其他」。` : "", "刪除", "danger"))) return;
-        s.close(); return commit(C.removeCategory(data, type, c.name));
+        s.close(); commit(C.removeCategory(data, type, c.name)); return onSaved?.(null);
       }
       if (t.dataset.csave !== undefined) {
         const name = el.querySelector("#c-name").value.trim(), subs = el.querySelector("#c-subs").value.split(/[\n,，、]/);
@@ -1383,7 +1405,7 @@ function catForm(type, c = null) {
         next = { ...next, cats: { ...next.cats, [type]: next.cats[type].map((x) => (x.name === name ? { ...x, icon: f.icon } : x)) } };
         next = C.setSubs(next, type, name, subs);
         if (!c && type === "out" && next.wheel.cats.length < C.WHEEL_MAX.cats) next = { ...next, wheel: { ...next.wheel, cats: [...next.wheel.cats, name] } };
-        s.close(); commit(next);
+        s.close(); commit(next); onSaved?.(name);
       }
     });
   });
