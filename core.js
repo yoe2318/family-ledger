@@ -34,7 +34,7 @@ export function emptyData() {
     wheel: { cats: cats.out.slice(0, 8).map((c) => c.name), pays: [...DEFAULT_PAYS] },
     budget: { total: 0, cats: {} }, recurring: [], debts: [], goals: [],
     accounts: DEFAULT_ACCTS.map((a) => ({ ...a })), payAcct: {}, moves: [],
-    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash" }, lastBackup: 0,
+    prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash", style: "notebook", font: "sans", radius: "m", bgImg: false, veil: 70 }, lastBackup: 0,
   };
 }
 
@@ -328,6 +328,8 @@ export function cleanData(raw) {
       monthStart: Math.min(28, Math.max(1, int(p.monthStart) || 1)), lastPay: pays.includes(p.lastPay) ? p.lastPay : pays[0] || "",
       bg: BACKGROUNDS[p.bg] ? p.bg : "paper", pattern: PATTERNS[p.pattern] ? p.pattern : "grid", keyH: clampKeyH(p.keyH),
       inAcct: okA(p.inAcct) || accounts[0].id, outAcct: okA(p.outAcct) || accounts[0].id,
+      style: STYLES[p.style] ? p.style : "notebook", font: FONTS[p.font] ? p.font : "sans", radius: RADII[p.radius] ? p.radius : "m",
+      bgImg: !!p.bgImg, veil: Math.min(90, Math.max(40, int(p.veil) || 70)),
       ...(p.friend && parseLink("#link=" + encodeURIComponent(String(p.friend.url || "")) + "~" + String(p.friend.key || "")) ? { friend: { url: String(p.friend.url), key: String(p.friend.key), auto: p.friend.auto !== false } } : {}) },
     lastBackup: Number(raw.lastBackup) || 0,
     ...(cleanFriends(raw.friends) ? { friends: cleanFriends(raw.friends) } : {}),
@@ -370,6 +372,27 @@ export const PALETTES = {
   indigo: { name: "靛藍",
     light: { accent: "#3F5BA9", "accent-strong": "#344C8F", "on-accent": "#FFFFFF", "accent-ink": "#34498A", "accent-soft": "#DFE5F4" },
     dark: { accent: "#8EA6E8", "accent-strong": "#A3B6ED", "on-accent": "#141A2B", "accent-ink": "#A9BBEF", "accent-soft": "#1E2640" } },
+  walnut: { name: "胡桃咖啡",
+    light: { accent: "#7A4A24", "accent-strong": "#663C1B", "on-accent": "#FFF8EE", "accent-ink": "#6A3E1C", "accent-soft": "#EAD9BE" },
+    dark: { accent: "#D9A86A", "accent-strong": "#E3B67D", "on-accent": "#2A2119", "accent-ink": "#E6BC85", "accent-soft": "#4A3726" } },
+  graphite: { name: "墨黑",
+    light: { accent: "#2B2B2B", "accent-strong": "#111111", "on-accent": "#FFFFFF", "accent-ink": "#2B2B2B", "accent-soft": "#ECEAE4" },
+    dark: { accent: "#E8E6E0", "accent-strong": "#FFFFFF", "on-accent": "#1A1A1A", "accent-ink": "#E8E6E0", "accent-soft": "#33322F" } },
+  gold: { name: "星夜金",
+    light: { accent: "#2E3F7A", "accent-strong": "#24336A", "on-accent": "#FFFFFF", "accent-ink": "#2E3F7A", "accent-soft": "#E1E5F3" },
+    dark: { accent: "#E8C268", "accent-strong": "#F0D186", "on-accent": "#1A1A2E", "accent-ink": "#F0D186", "accent-soft": "#2B3257" } },
+  ocean: { name: "海藍綠",
+    light: { accent: "#0E7680", "accent-strong": "#0B636B", "on-accent": "#FFFFFF", "accent-ink": "#0B6A73", "accent-soft": "#D2ECEF" },
+    dark: { accent: "#5CC6CF", "accent-strong": "#7DD5DC", "on-accent": "#0D2228", "accent-ink": "#7DD5DC", "accent-soft": "#1B3E46" } },
+  forest: { name: "森林綠",
+    light: { accent: "#2F6B3A", "accent-strong": "#255A2F", "on-accent": "#FFFFFF", "accent-ink": "#2A5F33", "accent-soft": "#D6E7D2" },
+    dark: { accent: "#8CC79A", "accent-strong": "#A3D4AE", "on-accent": "#142017", "accent-ink": "#A3D4AE", "accent-soft": "#23392A" } },
+  ribbon: { name: "緞帶紅",
+    light: { accent: "#C8233F", "accent-strong": "#A81D35", "on-accent": "#FFFFFF", "accent-ink": "#B81F3E", "accent-soft": "#FFE3EA" },
+    dark: { accent: "#FF7A95", "accent-strong": "#FF95AA", "on-accent": "#2B171E", "accent-ink": "#FF95AA", "accent-soft": "#4D2633" } },
+  sky: { name: "天空藍",
+    light: { accent: "#0B70AA", "accent-strong": "#095E8F", "on-accent": "#FFFFFF", "accent-ink": "#0A6699", "accent-soft": "#D5ECF9" },
+    dark: { accent: "#5BB8EE", "accent-strong": "#7CC8F2", "on-accent": "#0B2233", "accent-ink": "#7CC8F2", "accent-soft": "#18405C" } },
   berry: { name: "莓果紅",
     light: { accent: "#A23B5C", "accent-strong": "#8A314E", "on-accent": "#FFFFFF", "accent-ink": "#88304D", "accent-soft": "#F4DDE4" },
     dark: { accent: "#E58AA7", "accent-strong": "#EC9FB7", "on-accent": "#2A141B", "accent-ink": "#F0A3BB", "accent-soft": "#3A1D27" } },
@@ -388,8 +411,18 @@ export const BACKGROUNDS = {
   mint: { name: "淡綠", light: "#EDF3EC", dark: "#141A15" },
   cream: { name: "奶油黃", light: "#F7F2E3", dark: "#1B1812" },
   blush: { name: "淡粉", light: "#F7EEEC", dark: "#1D1616" },
+  kraft: { name: "牛皮紙", light: "#EBDEC5", dark: "#2A2119", muted: { light: "#523D2B", dark: "#BFA98A" } },
+  receipt: { name: "收據灰", light: "#E4E2DD", dark: "#151515", muted: { light: "#555555", dark: "#A6A49E" } },
+  night: { name: "夜藍", light: "#DCE3F2", dark: "#0F1A33", muted: { light: "#4A5677", dark: "#A9B4D0" } },
+  ocean: { name: "海藍", light: "#E3F1F5", dark: "#0D2228", muted: { light: "#48656E", dark: "#9DBCC4" } },
+  forest: { name: "森林綠", light: "#E6EFE2", dark: "#142017", muted: { light: "#4E6150", dark: "#A2B8A3" } },
+  bow: { name: "蝴蝶結粉", light: "#FFF5F7", dark: "#2B171E", muted: { light: "#7D5865", dark: "#D3A9B6" } },
+  pocket: { name: "天空藍", light: "#E8F4FB", dark: "#0B2233", muted: { light: "#46637A", dark: "#9FC0D6" } },
 };
-export const PATTERNS = { grid: "方格", lines: "橫線", dots: "點點", plain: "素面" };
+// 某個背景上的次要文字顏色
+export const mutedOn = (bgId, mode) => C_BG(bgId).muted?.[mode] || MUTED[mode];
+const C_BG = (id) => BACKGROUNDS[id] || BACKGROUNDS.paper;
+export const PATTERNS = { grid: "方格", lines: "橫線", dots: "點點", plain: "素面", fiber: "牛皮紙", stars: "星點", waves: "波浪", leaves: "葉子", polka: "小圓點" };
 // 數字鍵盤每顆鍵的高度（px）：拖把手調整，範圍 36～76
 export const KEY_H = { min: 36, max: 76, def: 52 };
 export function clampKeyH(v) { const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(KEY_H.max, Math.max(KEY_H.min, n)) : KEY_H.def; }
@@ -609,4 +642,63 @@ export function swapIn(list, a, b) {
   if (i < 0 || j < 0) return x;
   [x[i], x[j]] = [x[j], x[i]];
   return x;
+}
+
+// ---------------------------------------------------------------- 主題風格：一鍵套整套（基本色、主色、背景、紋路、圓角、字體、裝飾）
+// 套用後主色、背景、紋路、圓角、字體都還能自己再改；style 只決定「紙」的顏色（表面、字、線）和裝飾
+// base：surface 卡片、s2 次要表面（鍵盤）、ink 字、line 線、line2 淡線、ok 正數、grid 方格線（rgba）、pc 紋路顏色（hex，畫 SVG 紋路用）
+export const STYLES = {
+  notebook: { name: "手帳", sub: "米白方格紙、陶土橘", palette: "terracotta", bg: "paper", pattern: "grid", radius: "m", font: "sans", deco: "",
+    light: { surface: "#FCFCFA", s2: "#ECEAE4", ink: "#1F1B17", line: "#DCD8CF", line2: "#E7E4DD", ok: "#3F6B3A", grid: "rgb(62 95 130 / .075)", pc: "#C9D2DC" },
+    dark: { surface: "#1F1D1A", s2: "#292622", ink: "#EEEAE3", line: "#38342E", line2: "#2C2925", ok: "#9CC08A", grid: "rgb(147 178 211 / .06)", pc: "#2F3640" } },
+  kraft: { name: "牛皮紙", sub: "牛皮紙、深咖啡、紙膠帶", palette: "walnut", bg: "kraft", pattern: "fiber", radius: "s", font: "sans", deco: "tape",
+    light: { surface: "#F3E9D7", s2: "#E6D7BC", ink: "#2C1F15", line: "#C6AC88", line2: "#D9C7A8", ok: "#3A5A2B", grid: "rgb(90 60 30 / .10)", pc: "#C9B28C", deco: "#C46B4E" },
+    dark: { surface: "#352A20", s2: "#3E3126", ink: "#EFE3CF", line: "#4E3F31", line2: "#43362A", ok: "#A9C48C", grid: "rgb(239 227 207 / .05)", pc: "#3A2E23", deco: "#B5654A" } },
+  receipt: { name: "收據", sub: "灰白紙、等寬字、鋸齒邊", palette: "graphite", bg: "receipt", pattern: "plain", radius: "s", font: "mono", deco: "receipt",
+    light: { surface: "#FBFBF8", s2: "#EFEDE8", ink: "#1C1C1C", line: "#CFCCC4", line2: "#E2DFD8", ok: "#2F5E3A", grid: "rgb(0 0 0 / .06)", pc: "#C9C6BE" },
+    dark: { surface: "#262624", s2: "#2E2E2B", ink: "#EDEDEA", line: "#3A3936", line2: "#31302E", ok: "#9BC79F", grid: "rgb(255 255 255 / .05)", pc: "#2C2C2A" } },
+  night: { name: "夜空", sub: "深藍、星點、金色", palette: "gold", bg: "night", pattern: "stars", radius: "m", font: "sans", deco: "",
+    light: { surface: "#F4F6FC", s2: "#E6EAF5", ink: "#14203D", line: "#C3CCE2", line2: "#D7DDEC", ok: "#2E6B45", grid: "rgb(46 63 122 / .08)", pc: "#9AA8CC" },
+    dark: { surface: "#17244A", s2: "#1E2C57", ink: "#EEF1FA", line: "#2A3966", line2: "#233260", ok: "#9DD6A8", grid: "rgb(232 227 200 / .06)", pc: "#6F6E66" } },
+  ocean: { name: "海洋", sub: "淺藍、波浪紋、湖水綠", palette: "ocean", bg: "ocean", pattern: "waves", radius: "l", font: "sans", deco: "",
+    light: { surface: "#F7FCFD", s2: "#E6F3F6", ink: "#10303A", line: "#C4DDE4", line2: "#D5E8ED", ok: "#2E6B45", grid: "rgb(14 118 128 / .08)", pc: "#A9D2DC" },
+    dark: { surface: "#133038", s2: "#183A43", ink: "#E3F3F6", line: "#24474F", line2: "#1D3D45", ok: "#9DD6A8", grid: "rgb(92 198 207 / .06)", pc: "#2A5560" } },
+  forest: { name: "森林", sub: "淺綠、葉子紋、深綠", palette: "forest", bg: "forest", pattern: "leaves", radius: "m", font: "sans", deco: "",
+    light: { surface: "#F7FAF5", s2: "#E8F0E5", ink: "#1B2A1C", line: "#C9D8C4", line2: "#DAE6D6", ok: "#2F6B3A", grid: "rgb(47 107 58 / .08)", pc: "#BCD2B5" },
+    dark: { surface: "#1B2B1F", s2: "#213326", ink: "#E6F0E4", line: "#2D4331", line2: "#263A2A", ok: "#9DD6A8", grid: "rgb(140 199 154 / .06)", pc: "#2C4632" } },
+  minimal: { name: "極簡", sub: "純白、沒有紋路、黑色", palette: "graphite", bg: "white", pattern: "plain", radius: "s", font: "sans", deco: "",
+    light: { surface: "#FFFFFF", s2: "#F2F2F2", ink: "#111111", line: "#E4E4E4", line2: "#EEEEEE", ok: "#2F6B3A", grid: "rgb(0 0 0 / .05)", pc: "#E0E0E0" },
+    dark: { surface: "#161616", s2: "#1D1D1D", ink: "#F2F2F2", line: "#2A2A2A", line2: "#222222", ok: "#9DD6A8", grid: "rgb(255 255 255 / .05)", pc: "#262626" } },
+  bow: { name: "蝴蝶結", sub: "白底粉紅、紅色、蝴蝶結", palette: "ribbon", bg: "bow", pattern: "polka", radius: "l", font: "round", deco: "bow",
+    light: { surface: "#FFFFFF", s2: "#FFF0F3", ink: "#3B1F2A", line: "#F5D5DE", line2: "#FAE3E9", ok: "#3F6B3A", grid: "rgb(200 35 63 / .07)", pc: "#F9D0DB", deco: "#E0294B" },
+    dark: { surface: "#3A1F29", s2: "#45232F", ink: "#FBE9EE", line: "#55303D", line2: "#4A2834", ok: "#9CC08A", grid: "rgb(255 122 149 / .06)", pc: "#43252F", deco: "#FF7A95" } },
+  pocket: { name: "口袋藍", sub: "天空藍＋白、紅色、黃色鈴鐺", palette: "sky", bg: "pocket", pattern: "plain", radius: "l", font: "round", deco: "bell",
+    light: { surface: "#FFFFFF", s2: "#EEF7FC", ink: "#0E2A40", line: "#C7E2F2", line2: "#DCEEF8", ok: "#2E6B45", grid: "rgb(11 112 170 / .07)", pc: "#C4E1F2", deco: "#F4C02F", deco2: "#D93330" },
+    dark: { surface: "#12314A", s2: "#163A55", ink: "#E6F3FC", line: "#1F4663", line2: "#1A3E58", ok: "#9DD6A8", grid: "rgb(91 184 238 / .06)", pc: "#1C4260", deco: "#F4C02F", deco2: "#E0504D" } },
+};
+export const FONTS = { sans: "一般", round: "圓體", mono: "等寬" };
+export const RADII = { s: { name: "小", v: [2, 3, 6] }, m: { name: "中", v: [4, 6, 10] }, l: { name: "大", v: [10, 14, 20] } };
+// 套用主題：一次設定主色、背景、紋路、圓角、字體（之後可以各自再改）
+export const applyStyle = (prefs, id) => {
+  const st = STYLES[id];
+  return st ? { ...prefs, style: id, theme: st.palette, bg: st.bg, pattern: st.pattern, radius: st.radius, font: st.font } : prefs;
+};
+// 紋路的 CSS（背景圖＋大小）。grid 用 rgba 線、其他用 pc（SVG 紋路沒辦法吃 CSS 變數）
+const svgUrl = (s) => `url("data:image/svg+xml,${encodeURIComponent(s)}")`;
+export function patternCSS(kind, grid, pc) {
+  if (kind === "grid") return [`linear-gradient(${grid} 1px, transparent 1px), linear-gradient(90deg, ${grid} 1px, transparent 1px)`, "24px 24px"];
+  if (kind === "lines") return [`linear-gradient(${grid} 1px, transparent 1px)`, "100% 28px"];
+  if (kind === "dots") return [`radial-gradient(circle, ${pc} 1.1px, transparent 1.6px)`, "18px 18px"];
+  if (kind === "fiber") return [`repeating-linear-gradient(115deg, ${grid} 0 1px, transparent 1px 7px), repeating-linear-gradient(25deg, ${grid} 0 1px, transparent 1px 11px)`, "auto"];
+  if (kind === "stars") return [svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='90' height='90'><g fill='${pc}'><circle cx='12' cy='18' r='1.2'/><circle cx='58' cy='9' r='.8'/><circle cx='74' cy='52' r='1.4'/><circle cx='33' cy='66' r='.9'/><circle cx='84' cy='83' r='.7'/><path d='M46 38l1.2 3 3 1.2-3 1.2-1.2 3-1.2-3-3-1.2 3-1.2z'/></g></svg>`), "90px 90px"];
+  if (kind === "waves") return [svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='60' height='24'><path d='M0 12c10-8 20-8 30 0s20 8 30 0' fill='none' stroke='${pc}' stroke-width='1.4'/></svg>`), "60px 24px"];
+  if (kind === "leaves") return [svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><g fill='none' stroke='${pc}' stroke-width='1.3'><path d='M14 30c8-14 22-16 28-12-4 8-16 18-28 12z'/><path d='M14 30l24-10'/><path d='M50 70c6-12 18-14 24-10-4 7-14 15-24 10z'/><path d='M50 70l20-9'/></g></svg>`), "80px 80px"];
+  if (kind === "polka") return [`radial-gradient(${pc} 18%, transparent 20%)`, "28px 28px"];
+  return ["none", "auto"];
+}
+// 裝飾用的小圖（自己畫的）：蝴蝶結、鈴鐺
+export function decoSVG(kind, c) {
+  if (kind === "bow") return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='26' height='18' viewBox='0 0 26 18'><path d='M13 9C9 3 3 1 2 4s1 10 4 11 5-3 7-6zM13 9c4-6 10-8 11-5s-1 10-4 11-5-3-7-6z' fill='${c}'/><circle cx='13' cy='9' r='2.6' fill='${c}' stroke='white' stroke-width='1'/></svg>`);
+  if (kind === "bell") return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'><circle cx='9' cy='9' r='7.5' fill='${c}' stroke='%238A6A10' stroke-width='1'/><path d='M2.5 7.5h13' stroke='%238A6A10' stroke-width='1.2'/><circle cx='9' cy='11.5' r='1.6' fill='%236B520C'/></svg>`.replace(/%23/g, "#"));
+  return "none";
 }

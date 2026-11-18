@@ -135,7 +135,7 @@ for (const [id, p] of Object.entries(C.PALETTES)) for (const mode of ["light", "
 
 // 背景：次要文字、每組主題的主色文字在每種背景上都看得清楚
 for (const [id, b] of Object.entries(C.BACKGROUNDS)) for (const mode of ["light", "dark"]) {
-  const r = C.contrast(C.MUTED[mode], b[mode]);
+  const r = C.contrast(C.mutedOn(id, mode), b[mode]);
   eq(`背景 ${b.name} ${mode} 次要文字 ${r.toFixed(2)} ≥ 4.5`, r >= 4.5, true);
   for (const p of Object.values(C.PALETTES)) { const r2 = C.contrast(p[mode]["accent-ink"], b[mode]); eq(`背景 ${b.name} ${mode} ${p.name}主色文字 ${r2.toFixed(2)} ≥ 4.5`, r2 >= 4.5, true); }
 }
@@ -251,5 +251,15 @@ eq("細項多選：組合存起來、拆得開", C.subParts("早餐＋午餐"), 
   eq("明細的細項留著", C.cleanLines([{ shop: "a", amt: 5, sub: "早餐" }])[0].sub, "早餐");
 }
 eq("扇形交換", [C.swapIn(["a", "b", "c"], "a", "c"), C.swapIn(["a", "b"], "a", "x")], [["c", "b", "a"], ["a", "b"]]);
+// 主題風格：字、次要字、主色文字在主題的表面和背景上都看得清楚；每一組主色在每一種主題表面上也看得清楚
+for (const [id, st] of Object.entries(C.STYLES)) for (const mode of ["light", "dark"]) {
+  const b = st[mode], bg = C.BACKGROUNDS[st.bg][mode], pal = C.PALETTES[st.palette][mode];
+  for (const [what, x, y] of [["字／表面", b.ink, b.surface], ["字／背景", b.ink, bg], ["字／鍵盤", b.ink, b.s2], ["次要字／表面", C.mutedOn(st.bg, mode), b.surface], ["正數／表面", b.ok, b.surface], ["主色文字／表面", pal["accent-ink"], b.surface]])
+    eq(`主題 ${st.name} ${mode} ${what} ${C.contrast(x, y).toFixed(2)} ≥ 4.5`, C.contrast(x, y) >= 4.5, true);
+  for (const p of Object.values(C.PALETTES)) eq(`主題 ${st.name} ${mode} 表面 × ${p.name}主色文字`, C.contrast(p[mode]["accent-ink"], b.surface) >= 4.5, true);
+}
+eq("套用主題：一次設好", (({ style, theme, bg, pattern, radius, font }) => [style, theme, bg, pattern, radius, font])(C.applyStyle(C.emptyData().prefs, "bow")), ["bow", "ribbon", "bow", "polka", "l", "round"]);
+eq("主題偏好：亂填的改回預設", ((p) => [p.style, p.font, p.radius, p.bgImg, p.veil])(C.cleanData({ items: [], prefs: { style: "x", font: "x", radius: "x", veil: 5 } }).prefs), ["notebook", "sans", "m", false, 40]);
+eq("紋路 CSS", [C.patternCSS("plain", "", "")[0], C.patternCSS("grid", "red", "")[1], C.patternCSS("stars", "", "#fff")[0].startsWith('url("data:image/svg+xml')], ["none", "24px 24px", true]);
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

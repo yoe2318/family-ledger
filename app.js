@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.5";
+const VERSION = "1.5.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -102,18 +102,79 @@ function commit(next, { quiet = false } = {}) { data = next; save(); if (!quiet)
 
 // ================================================================ 主題
 const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+const FONT_CSS = {
+  round: ['"Zen Maru Gothic", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif', "Zen+Maru+Gothic:wght@500;700"],
+  mono: ['"IBM Plex Mono", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", monospace', ""],
+};
+function ensureFont(fam) {               // 圓體只有選到才去載
+  if (!fam || document.getElementById("font-" + fam)) return;
+  const l = Object.assign(document.createElement("link"), { id: "font-" + fam, rel: "stylesheet", href: `https://fonts.googleapis.com/css2?family=${fam}&display=swap` });
+  document.head.append(l);
+}
 function applyTheme() {
-  const { theme, mode } = data.prefs, dark = mode === "dark" || (mode === "auto" && darkMQ.matches);
-  const root = document.documentElement;
+  const P = data.prefs, { theme, mode } = P, dark = mode === "dark" || (mode === "auto" && darkMQ.matches), m = dark ? "dark" : "light";
+  const root = document.documentElement, set = (k, v) => root.style.setProperty("--" + k, v);
   if (mode === "auto") root.removeAttribute("data-theme"); else root.dataset.theme = mode;
-  const p = (C.PALETTES[theme] || C.PALETTES.terracotta)[dark ? "dark" : "light"];
-  for (const [k, v] of Object.entries(p)) root.style.setProperty("--" + k, v);
-  const bg = (C.BACKGROUNDS[data.prefs.bg] || C.BACKGROUNDS.paper)[dark ? "dark" : "light"];
-  root.style.setProperty("--bg", bg);
-  for (const k of Object.keys(C.PATTERNS)) document.body.classList.toggle("pat-" + k, data.prefs.pattern === k && k !== "grid");
+  const st = C.STYLES[P.style] || C.STYLES.notebook, b = st[m];
+  for (const [k, v] of Object.entries({ surface: b.surface, "surface-2": b.s2, ink: b.ink, line: b.line, "line-2": b.line2, ok: b.ok, grid: b.grid })) set(k, v);
+  const p = (C.PALETTES[theme] || C.PALETTES.terracotta)[m];
+  for (const [k, v] of Object.entries(p)) set(k, v);
+  const bg = (C.BACKGROUNDS[P.bg] || C.BACKGROUNDS.paper)[m];
+  set("bg", bg); set("muted", C.mutedOn(P.bg, m));
+  for (const k of Object.keys(C.PATTERNS)) document.body.classList.remove("pat-" + k);
+  const [img, size] = C.patternCSS(P.pattern, b.grid, b.pc);
+  document.body.style.backgroundImage = img; document.body.style.backgroundSize = size;
+  const [r1, r2, r3] = (C.RADII[P.radius] || C.RADII.m).v;
+  set("r-sm", r1 + "px"); set("r", r2 + "px"); set("r-lg", r3 + "px");
+  const fc = FONT_CSS[P.font];
+  if (fc) { set("font", fc[0]); ensureFont(fc[1]); } else root.style.removeProperty("font");
+  for (const k of ["tape", "receipt", "bow", "bell"]) document.body.classList.toggle("deco-" + k, st.deco === k);
+  set("deco-c", b.deco || p.accent); set("deco-c2", b.deco2 || p.accent); set("deco-img", C.decoSVG(st.deco, b.deco || p.accent));
+  set("veil", String((P.veil || 70) / 100));
   $('meta[name="theme-color"]')?.setAttribute("content", bg);
 }
 darkMQ.addEventListener?.("change", applyTheme);
+
+// ================================================================ 自訂背景圖片（只存在這台手機）
+const BGDB = {
+  open() { return new Promise((ok, no) => { try { const r = indexedDB.open("ledger-bg", 1); r.onupgradeneeded = () => r.result.createObjectStore("img"); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); },
+  async run(mode, fn) { const db = await this.open(); return new Promise((ok, no) => { const tx = db.transaction("img", mode), q = fn(tx.objectStore("img")); tx.oncomplete = () => ok(q?.result ?? null); tx.onerror = () => no(tx.error); }); },
+  get() { return this.run("readonly", (o) => o.get("bg")); },
+  set(blob) { return this.run("readwrite", (o) => o.put(blob, "bg")); },
+  del() { return this.run("readwrite", (o) => o.delete("bg")); },
+};
+let bgURL = null;
+async function showBgImg() {
+  let layer = $("#bgimg");
+  if (!layer) { layer = Object.assign(document.createElement("div"), { id: "bgimg", hidden: true }); document.body.prepend(layer); }
+  if (!data.prefs.bgImg) { layer.hidden = true; return; }
+  try {
+    const blob = await BGDB.get();
+    if (!blob) { layer.hidden = true; return; }
+    if (bgURL) URL.revokeObjectURL(bgURL);
+    bgURL = URL.createObjectURL(blob);
+    layer.style.backgroundImage = `url("${bgURL}")`; layer.hidden = false;
+  } catch { layer.hidden = true; }
+}
+// 選圖：縮到最長邊 1200px、轉 JPEG，太大的照片存不下也很慢
+async function loadImage(file) {
+  try { return await createImageBitmap(file); } catch { /* 有些格式（例如 iPhone 的 HEIC）要用 <img> 解 */ }
+  const url = URL.createObjectURL(file);
+  try { const im = new Image(); im.src = url; await im.decode(); return im; } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+}
+async function pickBgImage(file) {
+  try {
+    const im = await loadImage(file), w = im.width, h = im.height, k = Math.min(1, 1200 / Math.max(w, h));
+    const c = Object.assign(document.createElement("canvas"), { width: Math.round(w * k), height: Math.round(h * k) });
+    c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.82));
+    if (!blob) throw new Error("toBlob");
+    await BGDB.set(blob);
+    commit({ ...data, prefs: { ...data.prefs, bgImg: true } });
+    await showBgImg();
+    toast("背景圖片換好了，可以用下面的滑桿調淡一點或濃一點");
+  } catch { toast("存不了這張圖片（可能是無痕模式，或圖片格式不支援）"); }
+}
 
 // ================================================================ 畫面狀態、上一頁
 const ui = { wsel: null, tab: "home", period: "", search: null, statType: "out", openCat: null, calMonth: "", calDay: "", more: null, catType: "out", fg: null };
@@ -1524,19 +1585,32 @@ function wheelTap(key) {
 
 // ---- 主題
 function pgTheme() {
-  const dark = data.prefs.mode === "dark" || (data.prefs.mode === "auto" && darkMQ.matches), m = dark ? "dark" : "light";
-  const curBg = (C.BACKGROUNDS[data.prefs.bg] || C.BACKGROUNDS.paper)[m];
-  return `${subHead("外觀")}<p class="small muted">每個人可以選自己喜歡的樣子，只會改這台裝置。</p>
+  const P = data.prefs, dark = P.mode === "dark" || (P.mode === "auto" && darkMQ.matches), m = dark ? "dark" : "light";
+  const st = C.STYLES[P.style] || C.STYLES.notebook, curBg = (C.BACKGROUNDS[P.bg] || C.BACKGROUNDS.paper)[m];
+  const patStyle = (kind, bgc, base) => { const [img, size] = C.patternCSS(kind, base.grid.replace(/\/ ?\.0?\d+\)/, "/ .3)"), base.pc); return `background-color:${bgc};background-image:${esc(img)};background-size:${size}`; };
+  const styleTile = ([id, x]) => { const b = x[m], bgc = C.BACKGROUNDS[x.bg][m], acc = C.PALETTES[x.palette][m].accent;
+    return `<button data-style="${id}" class="${id === P.style ? "on" : ""}"><i style="${patStyle(x.pattern, bgc, b)}"><b style="background:${acc}"></b><em style="background:${b.surface};border-color:${b.line}"></em></i><span>${esc(x.name)}</span><small>${esc(x.sub)}</small></button>`; };
+  const seg = (attr, list, cur) => `<div class="seg">${Object.entries(list).map(([v, t]) => `<button data-${attr}="${v}" class="${v === cur ? "on" : ""}">${esc(typeof t === "string" ? t : t.name)}</button>`).join("")}</div>`;
+  return `${subHead("外觀")}<p class="small muted">每個人可以選自己喜歡的樣子，只會改這台裝置。先選一套主題，再自己調細節。</p>
+    <div class="sec-h"><span>主題風格（一鍵換整套）</span></div>
+    <div class="style-tiles">${Object.entries(C.STYLES).map(styleTile).join("")}</div>
     <div class="sec-h"><span>主色（按鈕、重點數字）</span></div>
-    <div class="swatches">${Object.entries(C.PALETTES).map(([id, p]) => `<button data-theme="${id}" class="${id === data.prefs.theme ? "on" : ""}"><i style="background:${p[m].accent}"></i>${esc(p.name)}</button>`).join("")}</div>
+    <div class="swatches">${Object.entries(C.PALETTES).map(([id, p]) => `<button data-theme="${id}" class="${id === P.theme ? "on" : ""}"><i style="background:${p[m].accent}"></i>${esc(p.name)}</button>`).join("")}</div>
     <div class="sec-h"><span>背景顏色</span></div>
-    <div class="bg-tiles">${Object.entries(C.BACKGROUNDS).map(([id, b]) => `<button data-bg="${id}" class="${id === data.prefs.bg ? "on" : ""}"><i style="background:${b[m]}"></i>${esc(b.name)}</button>`).join("")}</div>
+    <div class="bg-tiles">${Object.entries(C.BACKGROUNDS).map(([id, b]) => `<button data-bg="${id}" class="${id === P.bg ? "on" : ""}"><i style="background:${b[m]}"></i>${esc(b.name)}</button>`).join("")}</div>
     <div class="sec-h"><span>背景款式</span></div>
-    <div class="bg-tiles">${Object.entries(C.PATTERNS).map(([id, name]) => `<button data-pattern="${id}" class="${id === data.prefs.pattern ? "on" : ""}"><i class="pv-${id}" style="background-color:${curBg}"></i>${esc(name)}</button>`).join("")}</div>
+    <div class="bg-tiles">${Object.entries(C.PATTERNS).map(([id, name]) => `<button data-pattern="${id}" class="${id === P.pattern ? "on" : ""}"><i style="${patStyle(id, curBg, st[m])}"></i>${esc(name)}</button>`).join("")}</div>
+    <div class="sec-h"><span>字體</span></div>${seg("font", C.FONTS, P.font)}
+    <div class="sec-h"><span>圓角</span></div>${seg("radius", C.RADII, P.radius)}
     <div class="sec-h"><span>深淺色</span></div>
-    <div class="seg">${[["auto", "跟著手機"], ["light", "淺色"], ["dark", "深色"]].map(([v, t]) => `<button data-mode="${v}" class="${v === data.prefs.mode ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="seg">${[["auto", "跟著手機"], ["light", "淺色"], ["dark", "深色"]].map(([v, t]) => `<button data-mode="${v}" class="${v === P.mode ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="sec-h"><span>自訂背景圖片</span></div>
+    <p class="small muted" style="margin:0">從相簿選一張圖當背景。圖只存在這台手機，不會上傳，也不會放進備份檔。</p>
+    <input type="file" id="bgimg-in" accept="image/*" hidden>
+    <div class="row-btns"><button class="btn grow" data-bgpick>${ico("upload")}${P.bgImg ? "換一張" : "選圖片"}</button>${P.bgImg ? `<button class="btn danger" data-bgrm>${ico("trash")}拿掉</button>` : ""}</div>
+    ${P.bgImg ? `<div class="field"><label for="veil">圖片淡一點</label><input type="range" id="veil" min="40" max="90" step="5" value="${P.veil}" aria-label="背景圖片蓋上去的淡色，越大圖片越淡"></div><p class="small muted" style="margin:0">往右：圖片越淡、字越清楚；往左：圖片越明顯。</p>` : ""}
     <div class="sec-h"><span>數字鍵盤大小</span></div>
-    <p class="small muted" style="margin:0">記帳時按住鍵盤上面的小把手上下拖就能調大小，點一下把手可以收起鍵盤。現在每顆鍵 <b class="num">${data.prefs.keyH}</b> px。</p>
+    <p class="small muted" style="margin:0">記帳時按住鍵盤上面的小把手上下拖就能調大小，點一下把手可以收起鍵盤。現在每顆鍵 <b class="num">${P.keyH}</b> px。</p>
     <div class="row-btns"><button class="btn" data-keyh="-6">小一點</button><button class="btn" data-keyh="6">大一點</button><button class="btn text" data-keyh="0">恢復預設</button></div>`;
 }
 
@@ -1738,6 +1812,11 @@ async function onClick(e) {
   }
   if (d.prename) { const v = await ask("改名", "", [["no", "取消"], ["ok", "存起來", "primary"]], d.prename); if (v) commit(C.renamePay(data, d.prename, v)); return; }
   if (d.pdel) { if (await sure(`刪除「${d.pdel}」？`, "以前用它記的紀錄會照舊寫著。", "刪除", "danger")) commit(C.removePay(data, d.pdel)); return; }
+  if (d.style) { commit({ ...data, prefs: C.applyStyle(data.prefs, d.style) }); applyTheme(); toast(`換成「${C.STYLES[d.style].name}」了，下面還可以自己調細節`); return render(); }
+  if (d.font) { commit({ ...data, prefs: { ...data.prefs, font: d.font } }); applyTheme(); return render(); }
+  if (d.radius) { commit({ ...data, prefs: { ...data.prefs, radius: d.radius } }); applyTheme(); return render(); }
+  if (d.bgpick !== undefined) return $("#bgimg-in")?.click();
+  if (d.bgrm !== undefined) { try { await BGDB.del(); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, bgImg: false } }); showBgImg(); return toast("背景圖片拿掉了"); }
   if (d.theme) { commit({ ...data, prefs: { ...data.prefs, theme: d.theme } }); return applyTheme(); }
   if (d.mode) { commit({ ...data, prefs: { ...data.prefs, mode: d.mode } }); applyTheme(); return render(); }
   if (d.bg) { commit({ ...data, prefs: { ...data.prefs, bg: d.bg } }); return applyTheme(); }
@@ -1750,16 +1829,20 @@ async function onClick(e) {
   if (d.clearall !== undefined) {
     const v = await ask("真的要清除全部資料？", "請輸入「清除」兩個字確認。", [["no", "取消"], ["ok", "清除全部", "danger"]], "");
     if (v?.trim() !== "清除") { if (v !== null) toast("沒有清除（要輸入「清除」）"); return; }
-    commit(C.emptyData(), { quiet: true }); applyTheme(); ui.period = periodNow(); toast("全部清除了"); return go("home");
+    try { await BGDB.del(); } catch { /* 沒有也沒關係 */ }
+    commit(C.emptyData(), { quiet: true }); applyTheme(); showBgImg(); ui.period = periodNow(); toast("全部清除了"); return go("home");
   }
 }
 function onInput(e) {
+  if (e.target.id === "veil") { document.documentElement.style.setProperty("--veil", String(+e.target.value / 100)); return; }
   if (e.target.id !== "q" || e.isComposing) return;          // 注音選字中：等選好（compositionend）再找
   ui.search = e.target.value;
   const box = $("#sres"); if (box) box.innerHTML = searchResults(ui.search);
 }
 function onChange(e) {
   const t = e.target;
+  if (t.id === "bgimg-in" && t.files?.[0]) { pickBgImage(t.files[0]); t.value = ""; return; }
+  if (t.id === "veil") { commit({ ...data, prefs: { ...data.prefs, veil: +t.value } }, { quiet: true }); return applyTheme(); }
   if (t.id === "imp" && t.files?.[0]) { importBackup(t.files[0]); t.value = ""; return; }
   if (t.dataset.wfr !== undefined) {
     let cur = wheelFriends().map((m) => m.g + "|" + m.uid).filter((k) => k !== t.dataset.wfr);
@@ -1790,6 +1873,7 @@ function start() {
   const res = C.applyRecurring(data, today());           // 固定收支：到期的補記
   if (res.added.length) { data = res.data; save(); }
   buildShell();
+  showBgImg();
   history.replaceState({ tab: "home" }, "");
   render();
   if (res.added.length) toast(`自動記了 ${res.added.length} 筆固定收支`);

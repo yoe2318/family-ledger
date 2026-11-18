@@ -370,3 +370,25 @@ body { overscroll-behavior-x: none; }
 .mgrid button.now b { font-weight: 700; }
 .mgrid button.cur { border: 2px solid var(--accent); }
 .mgrid button:disabled { opacity: .35; }
+/* ===== 主題風格 ===== */
+.style-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.style-tiles button { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); text-align: left; color: var(--ink); font: inherit; }
+.style-tiles button i { position: relative; display: block; height: 52px; border-radius: var(--r-sm); border: 1px solid var(--line); overflow: hidden; }
+.style-tiles button i b { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px; border-radius: 50%; }
+.style-tiles button i em { position: absolute; left: 6px; top: 8px; width: 46%; height: 14px; border: 1px solid; border-radius: 3px; }
+.style-tiles button span { font-size: 14px; font-weight: 500; }
+.style-tiles button small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.style-tiles button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* 裝飾：標題（年月）旁邊 */
+body.deco-tape .top h1 .mpick { position: relative; z-index: 0; }
+body.deco-tape .top h1 .mpick::before { content: ""; position: absolute; left: -8px; right: -8px; top: 55%; height: 12px; background: var(--deco-c); opacity: .5; transform: rotate(-2deg); z-index: -1; border-radius: 2px; }
+body.deco-bow .top h1 .mpick::before, body.deco-bell .top h1 .mpick::before { content: ""; flex: none; width: 24px; height: 17px; background: var(--deco-img) center / contain no-repeat; }
+body.deco-bell .top h1 .mpick::before { width: 18px; height: 18px; }
+body.deco-bell .top { border-bottom: 3px solid var(--deco-c2); }
+body.deco-receipt .hero { background: var(--surface); padding-left: 12px; padding-right: 12px; padding-bottom: 22px;
+  -webkit-mask: linear-gradient(#000 0 0) top / 100% calc(100% - 8px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 12px 8px repeat-x;
+          mask: linear-gradient(#000 0 0) top / 100% calc(100% - 8px) no-repeat, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 12px 8px repeat-x; }
+/* 自訂背景圖片：鋪滿、固定在後面，上面蓋一層背景色（--veil 越大越淡） */
+#bgimg { position: fixed; inset: 0; z-index: -1; background: center / cover no-repeat; pointer-events: none; }
+#bgimg::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: var(--veil, .7); }
+input[type="range"]#veil { width: 100%; accent-color: var(--accent); }
