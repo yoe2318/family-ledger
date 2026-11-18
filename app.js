@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.1";
+const VERSION = "1.4.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1047,7 +1047,7 @@ function moveForm(m = null, preset = {}, into = null) {
         ${feeOn() ? `<div class="field"><span class="lab">手續費</span><div class="pick-row fee" style="padding:0">
           <button class="chip${!+st.fee ? " on" : ""}" data-mfee="0">不用</button>${lastFee ? `<button class="chip${+st.fee === lastFee ? " on" : ""}" data-mfee="${lastFee}">${C.money(lastFee)}</button>` : ""}
           <input id="m-fee" inputmode="numeric" value="${+st.fee && +st.fee !== lastFee ? esc(st.fee) : ""}" placeholder="其他金額" aria-label="手續費金額"></div>
-          <p class="small muted" style="margin:4px 0 0">手續費從「${esc(aName(st.from))}」扣，記成一筆支出（其他・手續費）</p></div>` : ""}
+          <p class="small muted" style="margin:4px 0 0;grid-column:1 / -1">手續費從「${esc(aName(st.from))}」扣，記成一筆支出（其他・手續費）</p></div>` : ""}
         <div class="field"><label for="m-date">日期</label><input id="m-date" type="date" value="${esc(st.date)}"></div>
         <div class="field"><label for="m-note">備註</label><input id="m-note" value="${esc(st.note)}" maxlength="200" placeholder="例如：提款、繳卡費"></div>
         ${m ? "" : `<label class="check"><input type="checkbox" data-msc${st.sc ? " checked" : ""}> 存成常用捷徑（首頁一點就記）</label>`}
