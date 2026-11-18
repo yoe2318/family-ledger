@@ -16,7 +16,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!-- 字型不擋畫面：先用系統字畫出來（手機的系統啟動畫面就能早點消失），字型載好再換 -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"></noscript>
 <link rel="stylesheet" href="style.css">
 <!-- Chrome／Edge 可以安裝時會發這個事件，可能比 app.js 載完還早：先接住，給「安裝」按鈕用 -->
 <script>addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.ledgerInstall = e; dispatchEvent(new Event("ledger:installable")); });</script>
