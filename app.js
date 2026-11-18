@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.1";
+const VERSION = "1.5.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -757,7 +757,7 @@ const periodNow = () => C.periodOf(today(), data.prefs.monthStart);
 function periodNav(extra = "") {
   const s = data.prefs.monthStart, cur = periodNow();
   return `<header class="top"><button class="icon-btn" data-per="-1" aria-label="上一期">${ico("chevron-left")}</button>
-    <h1><button class="mpick" data-mpick>${esc(C.periodLabel(ui.period, s))}${ico("chevron-down", "ico mp-caret")}</button></h1>
+    <h1><button class="mpick" data-mpick>${esc(C.periodLabel(ui.period, s))}</button></h1>
     <button class="icon-btn" data-per="1" aria-label="下一期"${ui.period >= cur ? " disabled" : ""}>${ico("chevron-right")}</button>${extra}</header>`;
 }
 function itemRow(x) {
@@ -894,7 +894,7 @@ function renderCal() {
   for (let i = 0; i < rest; i++) cells += "<span></span>";
   const dayItems = ui.calDay ? C.sortItems(data.items.filter((x) => x.date === ui.calDay)) : [];
   const mt = C.totals(data.items.filter((x) => x.date.startsWith(m)));
-  return `<header class="top"><button class="icon-btn" data-cal="-1" aria-label="上個月">${ico("chevron-left")}</button><h1><button class="mpick" data-mpick>${y} 年 ${mo} 月${ico("chevron-down", "ico mp-caret")}</button></h1>
+  return `<header class="top"><button class="icon-btn" data-cal="-1" aria-label="上個月">${ico("chevron-left")}</button><h1><button class="mpick" data-mpick>${y} 年 ${mo} 月</button></h1>
       <button class="icon-btn" data-cal="1" aria-label="下個月">${ico("chevron-right")}</button></header>
     <p class="small muted" style="margin:8px 0 0">這個月支出 <b class="num">${C.money(mt.out)}</b>　收入 <b class="num">${C.money(mt.in)}</b></p>
     <div class="cal-w">${["日", "一", "二", "三", "四", "五", "六"].map((w) => `<span>${w}</span>`).join("")}</div><div class="cal">${cells}</div>
