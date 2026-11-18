@@ -20,8 +20,42 @@
 <link rel="stylesheet" href="style.css">
 <!-- Chrome／Edge 可以安裝時會發這個事件，可能比 app.js 載完還早：先接住，給「安裝」按鈕用 -->
 <script>addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.ledgerInstall = e; dispatchEvent(new Event("ledger:installable")); });</script>
+<!-- 開場動畫的樣式（放 head：記帳 App 會重畫整個 body） -->
+<style>
+#splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 14px; background: #F5F4F0; cursor: pointer; }
+#splash.dark { background: #171614; }
+#splash img { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 8px 22px rgb(0 0 0 / .16); animation: sp-pop .675s cubic-bezier(.3, 1.4, .5, 1) both; }
+#splash span { font: 700 19px/1.2 "Noto Sans TC", system-ui, sans-serif; letter-spacing: .08em; color: #1F1B17; animation: sp-name .525s ease-out .375s both; }
+#splash.dark span { color: #EEEAE3; }
+#splash.out { animation: sp-out .45s ease-in forwards; pointer-events: none; }
+@keyframes sp-pop { from { transform: scale(.6); opacity: 0; } 70% { opacity: 1; } to { transform: scale(1); opacity: 1; } }
+@keyframes sp-name { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sp-out { to { transform: translateY(-12px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #splash img { animation: sp-name .4s ease-out both; } #splash.out { animation-duration: .2s; } }
+</style>
 </head>
 <body>
+<!-- 開場動畫：每次打開 App 播一次（重新整理不播）；App 準備好、而且播滿 1.2 秒才淡出；點一下跳過；最多 4 秒 -->
+<script>
+(function () {
+  window.splashReady = function () {};
+  try { if (sessionStorage.getItem("splash-seen")) return; sessionStorage.setItem("splash-seen", "1"); } catch (e) { return; }
+  var dark = (function () { var m = "auto"; try { m = JSON.parse(localStorage.getItem("ledger-v1")).prefs.mode || "auto"; } catch (e) {} return m === "dark" || (m === "auto" && matchMedia("(prefers-color-scheme: dark)").matches); })();
+  var el = document.createElement("div");
+  el.id = "splash"; el.className = dark ? "dark" : ""; el.setAttribute("aria-hidden", "true");
+  el.innerHTML = '<img src="icons/icon-192.png" alt=""><span>記帳</span>';
+  document.body.appendChild(el);
+  var t0 = Date.now(), done = false;
+  function out() {
+    if (done) return; done = true;
+    el.classList.add("out");
+    setTimeout(function () { el.remove(); }, 500);
+  }
+  window.splashReady = function () { setTimeout(out, Math.max(0, 1200 - (Date.now() - t0))); };
+  el.addEventListener("click", out);
+  setTimeout(out, 4000);
+})();
+</script>
 <noscript>這個記帳本需要開啟 JavaScript 才能用。</noscript>
 <script type="module" src="app.js"></script>
 </body>

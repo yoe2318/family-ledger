@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.5";
+const VERSION = "1.5.6";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1831,11 +1831,13 @@ function render() {
   if (ui.search !== null) { const q = $("#q"); if (q && document.activeElement !== q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 }
 function buildShell() {
+  const splash = document.getElementById("splash");   // 開場動畫（index.html 放的）：重畫 body 時留著
   document.body.innerHTML = `<main class="app" id="main"></main>
     <nav class="bottom" aria-label="主要功能"><div class="in"><i class="pill" aria-hidden="true"></i>${TABS.map(([id, icon, t]) => (id === "fab"
       ? `<div class="fab-wrap"><button class="fab" id="fab" aria-label="記一筆（按住往上劃可以快速選分類）">${ico("plus")}</button></div>`
       : `<button class="tab" data-tab="${id}">${ico(icon)}<span>${t}</span></button>`)).join("")}</div></nav>`;
   main = $("#main"); nav = $(".bottom"); pill = nav.querySelector(".pill");
+  if (splash) document.body.append(splash);
   bindFab($("#fab"));
   nav.addEventListener("click", (e) => { const t = e.target.closest("[data-tab]")?.dataset.tab; if (t && t !== ui.tab) go(t); else if (t === "more" && ui.more) go("more"); });
   main.addEventListener("click", onClick);
@@ -2051,6 +2053,7 @@ function start() {
   showBgImg(); showFab();
   history.replaceState({ tab: "home" }, "");
   render();
+  window.splashReady?.();                                 // 畫好了：開場動畫可以收（播滿 1.2 秒才收）
   if (res.added.length) toast(`自動記了 ${res.added.length} 筆固定收支`);
   const link = /#link=/.test(location.hash) ? C.parseLink(location.hash) : undefined;     // 從 LINE 機器人的連動連結打開
   if (link !== undefined) { history.replaceState({ tab: "home" }, "", location.pathname + location.search); linkFriend(link); }
