@@ -2,13 +2,14 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.4.4";
+const VERSION = "1.4.5";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+  "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   "chevron-right": '<path d="m9 18 6-6-6-6"/>',
   "arrow-up": '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
   "arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
@@ -572,7 +573,7 @@ const periodNow = () => C.periodOf(today(), data.prefs.monthStart);
 function periodNav(extra = "") {
   const s = data.prefs.monthStart, cur = periodNow();
   return `<header class="top"><button class="icon-btn" data-per="-1" aria-label="上一期">${ico("chevron-left")}</button>
-    <h1 class="num" style="font-family:var(--font)">${esc(C.periodLabel(ui.period, s))}</h1>
+    <h1><button class="mpick" data-mpick>${esc(C.periodLabel(ui.period, s))}${ico("chevron-down", "ico mp-caret")}</button></h1>
     <button class="icon-btn" data-per="1" aria-label="下一期"${ui.period >= cur ? " disabled" : ""}>${ico("chevron-right")}</button>${extra}</header>`;
 }
 function itemRow(x) {
@@ -658,6 +659,36 @@ function renderStats() {
     <div class="trend-x">${trend.map((x) => `<span>${Number(x.key.slice(5))}月</span>`).join("")}</div>`;
 }
 
+// ================================================================ 點年月：月份選擇（一年 12 格，寫每月花多少，花越多底色越深）
+function monthPicker() {
+  const isCal = ui.tab === "cal", ms = data.prefs.monthStart, cur = isCal ? ui.calMonth : ui.period, now = isCal ? today().slice(0, 7) : periodNow();
+  let year = Number(cur.slice(0, 4));
+  const spent = (key) => (isCal ? data.items.filter((x) => x.type === "out" && x.date.startsWith(key)) : C.periodItems(data.items, key, ms).filter((x) => x.type === "out")).reduce((a, x) => a + x.amt, 0);
+  openSheet((el, s) => {
+    const draw = () => {
+      const keys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`), vals = keys.map(spent), max = Math.max(1, ...vals);
+      el.innerHTML = `<div class="sheet-h"><button class="icon-btn" data-my="-1" aria-label="上一年">${ico("chevron-left")}</button><h3 style="flex:1;text-align:center">${year} 年</h3><button class="icon-btn" data-my="1" aria-label="下一年">${ico("chevron-right")}</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <p class="small muted" style="margin:0 0 8px">${year} 年支出 <b class="num">${C.money(vals.reduce((a, b) => a + b, 0))}</b>・點一個月就跳過去</p>
+        <div class="mgrid">${keys.map((k, i) => {
+          const off = !isCal && k > now, h = vals[i] ? Math.round((vals[i] / max) * 30) : 0;
+          return `<button data-mkey="${k}" class="${k === cur ? "cur " : ""}${k === now ? "now" : ""}"${off ? " disabled" : ""} style="--h:${h}%"><b>${i + 1}月</b><span class="num">${vals[i] ? C.money(vals[i]) : "—"}</span>${!isCal && ms !== 1 ? `<small>${esc(C.periodLabel(k, ms))}</small>` : ""}</button>`;
+        }).join("")}</div>
+        <div class="row-btns"><button class="btn grow" data-mkey="${now}">回到這個月</button></div>`;
+    };
+    draw();
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t || t.disabled) return;
+      if (t.dataset.close !== undefined) return s.close();
+      if (t.dataset.my) { year += +t.dataset.my; return draw(); }
+      if (t.dataset.mkey) {
+        if (isCal) { ui.calMonth = t.dataset.mkey; ui.calDay = ""; } else { ui.period = t.dataset.mkey; ui.openCat = null; }
+        s.close(); render(); window.scrollTo(0, 0);
+      }
+    });
+  });
+}
+
 // ================================================================ 月曆
 // 換月份（按鈕或左右滑）：往左滑＝下個月，往右滑＝上個月，月曆從那一邊滑進來
 function calShift(n) {
@@ -679,7 +710,7 @@ function renderCal() {
   for (let i = 0; i < rest; i++) cells += "<span></span>";
   const dayItems = ui.calDay ? C.sortItems(data.items.filter((x) => x.date === ui.calDay)) : [];
   const mt = C.totals(data.items.filter((x) => x.date.startsWith(m)));
-  return `<header class="top"><button class="icon-btn" data-cal="-1" aria-label="上個月">${ico("chevron-left")}</button><h1>${y} 年 ${mo} 月</h1>
+  return `<header class="top"><button class="icon-btn" data-cal="-1" aria-label="上個月">${ico("chevron-left")}</button><h1><button class="mpick" data-mpick>${y} 年 ${mo} 月${ico("chevron-down", "ico mp-caret")}</button></h1>
       <button class="icon-btn" data-cal="1" aria-label="下個月">${ico("chevron-right")}</button></header>
     <p class="small muted" style="margin:8px 0 0">這個月支出 <b class="num">${C.money(mt.out)}</b>　收入 <b class="num">${C.money(mt.in)}</b></p>
     <div class="cal-w">${["日", "一", "二", "三", "四", "五", "六"].map((w) => `<span>${w}</span>`).join("")}</div><div class="cal">${cells}</div>
@@ -1581,6 +1612,7 @@ let main, nav;
 function render() {
   const html = ui.tab === "stats" ? renderStats() : ui.tab === "cal" ? renderCal() : ui.tab === "more" ? renderMore() : renderHome();
   main.innerHTML = html;
+  main.classList.toggle("swipe-x", ui.tab === "cal");
   nav.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === ui.tab));
   if (ui.search !== null) { const q = $("#q"); if (q && document.activeElement !== q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 }
@@ -1624,14 +1656,19 @@ function buildShell() {
   main.addEventListener("pointerup", wend);
   main.addEventListener("pointercancel", () => { wd = null; render(); });
   // 月曆左右滑換月份（只看水平方向明顯的滑動，上下捲動不受影響）
+  // 月曆左右滑換月份：在手指移動時就判斷（有些手機把橫向滑動拿去做自己的手勢，只送 touchcancel、不送 touchend）
   let sw = null;
-  main.addEventListener("touchstart", (e) => { sw = ui.tab === "cal" && e.touches.length === 1 && !e.target.closest("input, select") ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
-  main.addEventListener("touchend", (e) => {
-    if (!sw || ui.tab !== "cal") return;
-    const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y;
-    sw = null;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) calShift(dx < 0 ? 1 : -1);
-  }, { passive: true });
+  const swStart = (x, y, t) => { sw = ui.tab === "cal" && !t.closest("input, select, .sheet") ? { x, y, done: false } : null; };
+  const swMove = (x, y) => {
+    if (!sw || sw.done || ui.tab !== "cal") return;
+    const dx = x - sw.x, dy = y - sw.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3) { sw.done = true; calShift(dx < 0 ? 1 : -1); }
+  };
+  main.addEventListener("touchstart", (e) => { if (e.touches.length === 1) swStart(e.touches[0].clientX, e.touches[0].clientY, e.target); else sw = null; }, { passive: true });
+  main.addEventListener("touchmove", (e) => { if (e.touches.length === 1) swMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  main.addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && !sw) swStart(e.clientX, e.clientY, e.target); });
+  main.addEventListener("pointermove", (e) => { if (e.pointerType === "touch") swMove(e.clientX, e.clientY); });
+  for (const ev of ["touchend", "touchcancel", "pointerup", "pointercancel"]) main.addEventListener(ev, () => { if (sw?.done || ev.startsWith("touch")) sw = null; }, { passive: true });
 }
 
 async function onClick(e) {
@@ -1659,6 +1696,7 @@ async function onClick(e) {
   if (d.stype) { ui.statType = d.stype; ui.openCat = null; return render(); }
   if (d.ocat !== undefined) { ui.openCat = ui.openCat === d.ocat ? null : d.ocat; return render(); }
   if (d.cal) return calShift(+d.cal);
+  if (d.mpick !== undefined) return monthPicker();
   if (d.day) { ui.calDay = ui.calDay === d.day ? "" : d.day; return render(); }
   if (d.addday) return openForm(null, { date: d.addday });
   // 朋友分帳

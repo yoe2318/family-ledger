@@ -354,3 +354,19 @@ details.old summary { padding: 8px 0; cursor: pointer; }
 /* 記帳畫面直接新增分類、細項 */
 .cats .cat-add { border-style: dashed; color: var(--accent-ink); }
 .chip.add { border-style: dashed; color: var(--accent-ink); }
+/* 月曆左右滑：左右交給 App，上下照常捲動 */
+main.swipe-x { touch-action: pan-y; }
+body { overscroll-behavior-x: none; }
+/* 點年月 */
+.mpick { border: 0; background: none; color: inherit; font: inherit; padding: 2px 4px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; }
+.mpick:active { background: var(--surface-2); }
+.mpick .mp-caret { width: 16px; height: 16px; color: var(--muted); }
+.mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mgrid button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 2px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--ink); font: inherit;
+  background: color-mix(in srgb, var(--accent) var(--h, 0%), var(--surface)); }
+.mgrid button b { font-weight: 500; }
+.mgrid button span { font-size: 12px; color: var(--muted); }
+.mgrid button small { font-size: 10px; color: var(--muted); }
+.mgrid button.now b { font-weight: 700; }
+.mgrid button.cur { border: 2px solid var(--accent); }
+.mgrid button:disabled { opacity: .35; }
