@@ -263,5 +263,37 @@ eq("主題偏好：亂填的改回預設", ((p) => [p.style, p.font, p.radius, p
 eq("紋路 CSS", [C.patternCSS("plain", "", "")[0], C.patternCSS("grid", "red", "")[1], C.patternCSS("stars", "", "#fff")[0].startsWith('url("data:image/svg+xml')], ["none", "24px 24px", true]);
 eq("裁切位置：超出範圍拉回來、壞的丟掉", [C.cleanCrop({ x: 2, y: -1, z: 9 }), C.cleanCrop({ x: "a" }), C.cleanCrop(null)], [{ x: 1, y: 0, z: 4 }, null, null]);
 eq("中間按鈕偏好", ((p) => [p.fabImg, p.fabPlus, p.fabCrop])(C.cleanData({ items: [], prefs: { fabImg: true, fabPlus: false, fabCrop: { x: .3, y: .4, z: 2 } } }).prefs), [true, false, { x: .3, y: .4, z: 2 }]);
+// 店家與菜單
+{
+  const L = (shop, what, amt, sub) => ({ shop, what, amt, ...(sub ? { sub } : {}) });
+  const items = [
+    { id: "1", type: "out", amt: 124, cat: "餐飲", sub: "午餐", date: "2026-11-01", t: 1, lines: [L("麥當勞", "雞塊", 65), L("麥當勞", "大薯", 55)] },
+    { id: "2", type: "out", amt: 69, cat: "餐飲", sub: "晚餐", date: "2026-11-02", t: 2, lines: [L("麥當勞", "雞塊", 69)] },
+    { id: "3", type: "out", amt: 45, cat: "餐飲", sub: "早餐", date: "2026-11-03", t: 3, lines: [L("7-11", "咖啡", 45)] },
+    { id: "4", type: "out", amt: 190, cat: "餐飲", sub: "午餐", date: "2026-11-04", t: 4, lines: [L("麥當勞", "雞塊", 69), L("麥當勞", "可樂", 35), L("7-11", "茶", 25)] },
+    { id: "5", type: "in", amt: 9, cat: "薪水", date: "2026-11-04", t: 5, lines: [L("公司", "x", 9)] },
+  ];
+  const idx = C.shopIndex(items), mc = C.findShop(idx, "麥當勞");
+  eq("店家：去過幾次（同一筆裡出現兩次只算一次）", mc.count, 3);
+  eq("店家：收入不算", C.findShop(idx, "公司"), null);
+  eq("店家：品項照次數排、價錢用最近一次", mc.menu.map((x) => [x.what, x.amt, x.count]), [["雞塊", 69, 3], ["可樂", 35, 1], ["大薯", 55, 1]]);
+  eq("店家：分類用最近一次", [mc.cat, mc.sub], ["餐飲", "午餐"]);
+  eq("店家：上次點的整張單（只有這家的）", mc.lastOrder.map((l) => l.what), ["雞塊", "可樂"]);
+  eq("常去的店家", C.topShops(idx).map((s) => s.name), ["麥當勞", "7-11"]);
+  const own = C.cleanShops([{ name: "麥當勞", cat: "餐飲", sub: "早餐", menu: [{ what: "玉米湯", amt: 45, t: 9 }, { what: "雞塊", amt: 72, t: 9 }], hide: ["大薯"], photo: true }]);
+  const mc2 = C.findShop(C.shopIndex(items, own), "麥當勞");
+  eq("店家：自己設的分類優先", [mc2.cat, mc2.sub], ["餐飲", "早餐"]);
+  eq("店家：自己加的品項、比較新的價錢蓋過、拿掉的不出現", mc2.menu.map((x) => [x.what, x.amt, x.mine]), [["雞塊", 72, true], ["可樂", 35, false], ["玉米湯", 45, true]]);
+  eq("店家：還沒去過的也列得出來", C.findShop(C.shopIndex([], [{ name: "新店", menu: [], hide: [], photo: false }]), "新店").count, 0);
+  eq("店家清理：擋亂資料、同名合併", C.cleanShops([null, { name: "" }, { name: " A ", menu: [{ what: "x", amt: "12.6" }, { what: "x", amt: 3 }, { what: "" }] }, { name: "A", hide: ["y", "y"], photo: 1 }]),
+    [{ name: "A", menu: [{ what: "x", amt: 13, t: 0 }], hide: ["y"], photo: true }]);
+  const d0 = { ...C.emptyData(), items: [items[0], { ...items[2], lines: [L("麥當労", "雞塊", 70)] }], shops: C.cleanShops([{ name: "麥當労", menu: [{ what: "蛋捲", amt: 30 }], photo: true }, { name: "麥當勞", cat: "餐飲", menu: [{ what: "雞塊", amt: 69 }] }]) };
+  const d1 = C.renameShop(d0, "麥當労", "麥當勞");
+  eq("改店名：紀錄裡的店名一起改", d1.items.flatMap((x) => x.lines.map((l) => l.shop)), ["麥當勞", "麥當勞", "麥當勞"]);
+  eq("改店名＝合併：菜單合併、照片留著、分類用原本的", d1.shops.map((s) => [s.name, s.menu.map((x) => x.what), s.photo, s.cat]), [["麥當勞", ["雞塊", "蛋捲"], true, "餐飲"]]);
+  eq("設定店家：新增、清掉分類", C.setShop(C.setShop(C.emptyData(), "B", { cat: "餐飲", sub: "早餐" }), "B", { cat: "" }).shops, [{ name: "B", menu: [], hide: [], photo: false }]);
+  eq("刪店家：只刪自己整理的", C.delShop(d1, "麥當勞").shops.length + C.delShop(d1, "麥當勞").items.length, 2);
+  eq("備份還原會帶店家", C.cleanData({ items: [], shops: [{ name: "X" }] }).shops.map((s) => s.name), ["X"]);
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

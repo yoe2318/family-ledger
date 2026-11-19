@@ -33,7 +33,7 @@ export function emptyData() {
     v: 1, items: [], cats, pays: [...DEFAULT_PAYS], shortcuts: [],
     wheel: { cats: cats.out.slice(0, 8).map((c) => c.name), pays: [...DEFAULT_PAYS] },
     budget: { total: 0, cats: {} }, recurring: [], debts: [], goals: [],
-    accounts: DEFAULT_ACCTS.map((a) => ({ ...a })), payAcct: {}, moves: [],
+    accounts: DEFAULT_ACCTS.map((a) => ({ ...a })), payAcct: {}, moves: [], shops: [],
     prefs: { theme: "terracotta", mode: "auto", monthStart: 1, lastPay: "現金", bg: "paper", pattern: "grid", keyH: 52, inAcct: "cash", outAcct: "cash", style: "notebook", font: "sans", radius: "m", bgImg: false, veil: 45, fabImg: false, fabPlus: true }, lastBackup: 0,
   };
 }
@@ -333,6 +333,7 @@ export function cleanData(raw) {
       ...(cleanCrop(p.bgCrop) ? { bgCrop: cleanCrop(p.bgCrop) } : {}), ...(cleanCrop(p.fabCrop) ? { fabCrop: cleanCrop(p.fabCrop) } : {}),
       ...(p.friend && parseLink("#link=" + encodeURIComponent(String(p.friend.url || "")) + "~" + String(p.friend.key || "")) ? { friend: { url: String(p.friend.url), key: String(p.friend.key), auto: p.friend.auto !== false } } : {}) },
     lastBackup: Number(raw.lastBackup) || 0,
+    shops: cleanShops(raw.shops),
     ...(cleanFriends(raw.friends) ? { friends: cleanFriends(raw.friends) } : {}),
     ...(Array.isArray(raw.friendQ) ? { friendQ: raw.friendQ.filter((q) => q && (q.op === "add" || q.op === "del")).slice(0, 200) } : {}),
   };
@@ -344,7 +345,8 @@ export function mergeData(cur, add) {
   for (const k of ["out", "in"]) { const list = [...cur.cats[k]]; for (const c of add.cats[k]) { const i = list.findIndex((d) => d.name === c.name); if (i < 0) list.push(c); else list[i] = { ...list[i], subs: [...new Set([...list[i].subs, ...c.subs])] }; } cats[k] = list; }
   return { ...cur, items: byId(cur.items, add.items), cats, pays: [...new Set([...cur.pays, ...add.pays])], shortcuts: byId(cur.shortcuts, add.shortcuts),
     recurring: byId(cur.recurring, add.recurring), debts: byId(cur.debts, add.debts), goals: byId(cur.goals, add.goals),
-    accounts: byId(cur.accounts, add.accounts), moves: byId(cur.moves, add.moves), payAcct: { ...add.payAcct, ...cur.payAcct } };
+    accounts: byId(cur.accounts, add.accounts), moves: byId(cur.moves, add.moves), payAcct: { ...add.payAcct, ...cur.payAcct },
+    shops: cleanShops([...(cur.shops || []), ...(add.shops || [])]) };
 }
 
 // 匯出成 Excel 打得開的 CSV（前面加 BOM，中文才不會變亂碼）
@@ -711,3 +713,88 @@ export function cleanCrop(c) {
   if (![x, y, z].every(Number.isFinite)) return null;
   return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), z: Math.min(4, Math.max(1, z)) };
 }
+
+// ---------------------------------------------------------------- 店家與菜單（明細學到的＋自己整理的）
+// data.shops：使用者自己整理的部分 [{ name, cat?, sub?, menu: [{ what, amt, t }], hide: [品項], photo }]
+// 學到的（去過幾次、點過什麼、多少錢）不存，每次從紀錄的 lines 算
+export function cleanShops(raw) {
+  if (!Array.isArray(raw)) return [];
+  const m = new Map();
+  for (const s of raw) {
+    const name = String(s?.name ?? "").trim().slice(0, 20);
+    if (!name) continue;
+    const cur = m.get(name) || { name, menu: [], hide: [], photo: false };
+    if (s.cat && !cur.cat) { cur.cat = String(s.cat).slice(0, 12); cur.sub = String(s.sub ?? "").slice(0, 30); }
+    for (const x of Array.isArray(s.menu) ? s.menu : []) {
+      const what = String(x?.what ?? "").trim().slice(0, 30);
+      if (!what || cur.menu.some((y) => y.what === what)) continue;
+      cur.menu.push({ what, amt: Math.max(0, Math.round(Number(x.amt) || 0)), t: Number(x.t) || 0 });
+    }
+    for (const h of Array.isArray(s.hide) ? s.hide : []) { const w = String(h ?? "").trim().slice(0, 30); if (w && !cur.hide.includes(w)) cur.hide.push(w); }
+    cur.photo = cur.photo || !!s.photo;
+    cur.menu = cur.menu.slice(0, 60); cur.hide = cur.hide.slice(0, 100);
+    m.set(name, cur);
+  }
+  return [...m.values()].slice(0, 300);
+}
+// 每家店：{ name, count, lastT, cat, sub, menu: [{ what, amt, sub, count, lastT, mine }], lastOrder: [lines], photo, own }
+export function shopIndex(items, shops = []) {
+  const m = new Map();
+  const get = (name) => m.get(name) || (m.set(name, { name, count: 0, lastT: 0, cat: "", sub: "", menu: new Map(), lastOrder: [], photo: false, own: null }), m.get(name));
+  for (const x of items) {
+    if (x.type !== "out") continue;
+    const ls = cleanLines(x.lines || []), t = x.t || Date.parse(x.date) || 0, seen = new Set();
+    for (const l of ls) {
+      if (!l.shop) continue;
+      const s = get(l.shop);
+      if (!seen.has(l.shop)) {
+        seen.add(l.shop); s.count++;
+        if (t >= s.lastT) { s.lastT = t; s.cat = x.cat; s.sub = x.sub || ""; s.lastOrder = ls.filter((y) => y.shop === l.shop); }
+      }
+      if (!l.what) continue;
+      const it = s.menu.get(l.what) || { what: l.what, amt: 0, sub: "", count: 0, lastT: -1, mine: false };
+      it.count++;
+      if (t >= it.lastT) { it.lastT = t; if (l.amt) it.amt = l.amt; it.sub = l.sub || ""; }
+      s.menu.set(l.what, it);
+    }
+  }
+  for (const own of shops) {
+    const s = get(own.name);
+    s.own = own; s.photo = !!own.photo;
+    if (own.cat) { s.cat = own.cat; s.sub = own.sub || ""; }
+    for (const x of own.menu) {
+      const it = s.menu.get(x.what);
+      if (!it) s.menu.set(x.what, { what: x.what, amt: x.amt, sub: "", count: 0, lastT: x.t, mine: true });
+      else { it.mine = true; if (x.t >= it.lastT && x.amt) { it.amt = x.amt; it.lastT = x.t; } }
+    }
+    for (const h of own.hide) { const it = s.menu.get(h); if (it && !own.menu.some((y) => y.what === h)) s.menu.delete(h); }
+  }
+  return [...m.values()].map((s) => ({ ...s, menu: [...s.menu.values()].sort((a, b) => b.count - a.count || b.lastT - a.lastT) }));
+}
+export const findShop = (index, name) => index.find((s) => s.name === String(name ?? "").trim()) || null;
+// 常去的：次數多的在前，一樣多比最近一次
+export const topShops = (index, n = 5) => index.filter((s) => s.count > 0).sort((a, b) => b.count - a.count || b.lastT - a.lastT).slice(0, n);
+// 改店名（改成已經有的名字＝合併）：紀錄的明細一起改；自己整理的菜單合併
+export function renameShop(data, from, to) {
+  to = String(to ?? "").trim().slice(0, 20);
+  if (!to || from === to) return data;
+  const items = data.items.map((x) => (x.lines?.some((l) => l.shop === from) ? { ...x, lines: x.lines.map((l) => (l.shop === from ? { ...l, shop: to } : l)) } : x));
+  const shops = data.shops || [], a = shops.find((s) => s.name === from), b = shops.find((s) => s.name === to);
+  let next = shops.filter((s) => s.name !== from && s.name !== to);
+  if (a || b) {
+    const base = b || { name: to, menu: [], hide: [], photo: false };
+    const add = a || { menu: [], hide: [], photo: false };
+    next = [...next, { ...base, name: to, ...(base.cat ? {} : add.cat ? { cat: add.cat, sub: add.sub || "" } : {}),
+      menu: [...base.menu, ...add.menu.filter((x) => !base.menu.some((y) => y.what === x.what))],
+      hide: [...new Set([...(base.hide || []), ...(add.hide || [])])], photo: !!(base.photo || add.photo) }];
+  }
+  return { ...data, items, shops: next };
+}
+// 改自己整理的部分（沒有就新增）
+export function setShop(data, name, patch) {
+  const shops = data.shops || [], cur = shops.find((s) => s.name === name) || { name, menu: [], hide: [], photo: false };
+  const next = { ...cur, ...patch };
+  if (patch.cat === "") { delete next.cat; delete next.sub; }
+  return { ...data, shops: cleanShops([...shops.filter((s) => s.name !== name), next]) };
+}
+export const delShop = (data, name) => ({ ...data, shops: (data.shops || []).filter((s) => s.name !== name) });

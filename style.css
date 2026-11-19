@@ -465,3 +465,30 @@ body.has-bgimg .app:not(.home) > .row-btns { margin-top: 0; padding-top: 16px; p
 .dt-line b { font-weight: 500; white-space: nowrap; }
 .dt-line.sum { border-bottom: 0; font-weight: 700; }
 .dt-line.sum b { font-weight: 700; }
+
+/* 明細：常去的店家、每列的菜單 */
+.shop-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 8px; }
+.shop-chips > .ico { width: 18px; height: 18px; color: var(--muted); }
+.ln-menu { padding: 0 0 6px; flex-wrap: wrap; }
+.ln-menu:empty { display: none; }
+.ln-menu .chip { font-size: 13px; padding: 4px 10px; }
+.ln-menu .chip b { font-weight: 500; color: var(--muted); margin-left: 2px; }
+.ln-menu .chip .ico { width: 14px; height: 14px; margin-right: 2px; vertical-align: -2px; }
+.ln-menu .chip.same { border-color: var(--accent); color: var(--accent-ink); }
+/* 店家頁 */
+.sm-list { display: grid; }
+.sm-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line-2); }
+.sm-row .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sm-row .t small { display: block; color: var(--muted); font-size: 12px; }
+.sm-row .num { font-family: var(--font-mono); }
+.sm-add { display: flex; gap: 8px; margin: 8px 0 4px; }
+.sm-add input { min-width: 0; }
+.sm-add input:first-child { flex: 2; }
+.sm-add input:nth-child(2) { flex: 1; }
+.sm-photo { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); overflow: hidden; color: var(--muted); }
+.sm-photo img { display: block; width: 100%; height: 220px; object-fit: cover; }
+.photo-view { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / .92); display: grid; grid-template-rows: auto 1fr; color: #fff; }
+.photo-view .pv-h { display: flex; align-items: center; justify-content: space-between; padding: calc(8px + env(safe-area-inset-top)) 16px 8px; }
+.photo-view .pv-h .icon-btn { color: #fff; }
+.photo-view .pv-img { overflow: auto; touch-action: pinch-zoom pan-x pan-y; display: grid; place-items: center; padding-bottom: env(safe-area-inset-bottom); }
+.photo-view img { max-width: 100%; height: auto; }
