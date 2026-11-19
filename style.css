@@ -450,3 +450,18 @@ body.has-bgimg .app:not(.home) > .row-btns { margin-top: 0; padding-top: 16px; p
 .crop-stage { display: flex; justify-content: center; padding: 8px 0; }
 .crop-stage canvas { touch-action: none; border-radius: var(--r); background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); cursor: grab; max-width: 100%; }
 .crop-stage.circle canvas { border-radius: 8px; }
+
+/* 點一筆的詳細內容 */
+.dt-amt { font-family: var(--font-mono); font-size: 32px; font-weight: 500; margin: 4px 0 8px; }
+.dt-amt.out { color: var(--ink); }
+.detail { display: grid; }
+.dt-row { display: grid; grid-template-columns: 5.5em 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+.dt-row .k { color: var(--muted); font-size: 13px; padding-top: 2px; }
+.dt-row .v { min-width: 0; overflow-wrap: anywhere; }
+.dt-lines { display: grid; }
+.dt-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-2); }
+.dt-line span { min-width: 0; overflow-wrap: anywhere; }
+.dt-line .tag { color: var(--accent-ink); background: var(--accent-soft); border-radius: 999px; padding: 0 6px; font-size: 11.5px; }
+.dt-line b { font-weight: 500; white-space: nowrap; }
+.dt-line.sum { border-bottom: 0; font-weight: 700; }
+.dt-line.sum b { font-weight: 700; }

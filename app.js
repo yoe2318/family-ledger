@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.5.8";
+const VERSION = "1.5.9";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -588,13 +588,7 @@ function openForm(item = null, preset = {}, into = null) {
       });
       if (t.dataset.pay !== undefined) { f.pay = f.pay === t.dataset.pay ? "" : t.dataset.pay; draw(); return; }
       if (t.dataset.sc !== undefined) { makeShortcut = t.checked; return; }
-      if (t.dataset.del !== undefined) {
-        if (!(await sure("刪除這一筆？", `${item.sub || item.cat} ${C.money(item.amt)}（${item.date}）`, "刪除", "danger"))) return;
-        s.close();
-        const old = item;
-        commit({ ...data, items: data.items.filter((x) => x.id !== item.id) });
-        toast("刪掉了", { label: "復原", run: () => commit({ ...data, items: [...data.items, old] }) });
-      }
+      if (t.dataset.del !== undefined) deleteItem(item, s);
     });
     el.addEventListener("input", (e) => { if (e.target.id === "f-note") f.note = e.target.value; if (e.target.id === "f-date") f.date = e.target.value; });
     bindLines(el, f, draw);
@@ -759,6 +753,46 @@ function periodNav(extra = "") {
   return `<header class="top"><button class="icon-btn" data-per="-1" aria-label="上一期">${ico("chevron-left")}</button>
     <h1><button class="mpick" data-mpick>${esc(C.periodLabel(ui.period, s))}</button></h1>
     <button class="icon-btn" data-per="1" aria-label="下一期"${ui.period >= cur ? " disabled" : ""}>${ico("chevron-right")}</button>${extra}</header>`;
+}
+// 刪掉一筆（先確認；刪完可以復原）
+async function deleteItem(item, s) {
+  if (!(await sure("刪除這一筆？", `${item.sub || item.cat} ${C.money(item.amt)}（${item.date}）`, "刪除", "danger"))) return;
+  s.close();
+  const old = item;
+  commit({ ...data, items: data.items.filter((x) => x.id !== item.id) });
+  toast("刪掉了", { label: "復原", run: () => commit({ ...data, items: [...data.items, old] }) });
+}
+// 點一筆：先看詳細內容，按「編輯」才進編輯畫面（同一個面板換過去）
+function itemDetail(it) {
+  const W = "日一二三四五六";
+  const d = new Date(it.date + "T00:00"), date = `${it.date.replace(/-/g, "/")}（${W[d.getDay()]}）`;
+  const isFr = String(it.id).startsWith("fr-"), fe = isFr ? fr().entries.find((e) => "fr-" + e.id === it.id) : null;
+  const lines = C.cleanLines(it.lines || []), lt = C.linesTotal(lines);
+  const row = (k, v) => (v ? `<div class="dt-row"><span class="k">${k}</span><span class="v">${v}</span></div>` : "");
+  openSheet((el, s) => {
+    el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico(catIcon(it.type, it.cat))}</span><h3>${esc(it.sub || it.cat)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      <div class="dt-amt amt ${it.type}">${it.type === "in" ? "+" : "−"}${C.money(it.amt)}</div>
+      <div class="detail">
+        ${row("日期", esc(date))}
+        ${row("分類", esc(it.sub ? `${it.cat}・${it.sub}` : it.cat))}
+        ${it.type === "out" ? row("付款方式", esc(it.pay)) : ""}
+        ${isFr ? "" : row("帳戶", it.acct ? esc(aName(it.acct)) : "")}
+        ${row("備註", esc(it.note))}
+        ${fe ? row("朋友帳", esc(`${fr().groups.find((g) => g.id === fe.g)?.name || ""}・${describeF(fe)}`)) : ""}
+        ${it.rec ? row("固定收支", "自動記的") : ""}
+      </div>
+      ${lines.length ? `<div class="sec-h"><span>明細</span></div><div class="dt-lines">${lines.map((l) => `<div class="dt-line"><span>${esc([l.shop, l.what].filter(Boolean).join(" "))}${l.sub ? ` <small class="tag">${esc(l.sub)}</small>` : ""}</span><b class="num">${l.amt ? C.money(l.amt) : ""}</b></div>`).join("")}
+        ${lines.length > 1 ? `<div class="dt-line sum"><span>合計</span><b class="num">${C.money(lt)}</b></div>` : ""}</div>
+        ${isFr && lt && lt !== it.amt ? `<p class="small muted" style="margin:4px 0 0">明細是整筆的金額，你分到的是 ${C.money(it.amt)}</p>` : ""}` : ""}
+      <div class="row-btns"><button class="btn primary grow" data-dedit>${ico("pencil")}編輯</button><button class="btn danger" data-ddel>${ico("trash")}刪除</button></div>`;
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      if (t.dataset.close !== undefined) s.close();
+      if (t.dataset.dedit !== undefined) openForm(it, {}, s);
+      if (t.dataset.ddel !== undefined) deleteItem(it, s);
+    });
+  });
 }
 function itemRow(x) {
   const meta = [x.sub ? x.cat : "", x.type === "out" ? x.pay : "", x.note, C.linesNote(x.lines || [])].filter(Boolean).join("・");
@@ -983,7 +1017,9 @@ function queueFriend(q, entry, hint = null) {
   let items = data.items;
   if (entry && data.prefs.friend?.auto) {
     const v = C.friendShare(entry, f.me);
-    if (v > 0) items = [...items, { id: "fr-" + entry.id, type: "out", amt: v, ...(hint || C.guessCat(entry.item, data.cats)), pay: "", date: C.ymd(new Date(entry.t)), note: "朋友帳・" + entry.item, t: entry.t }];
+    // hint：{ cat, sub }（分類）、lines（明細，存在我自己那筆支出裡，不是塞進備註）、base（沒接明細文字的項目名稱）
+    const lines = C.cleanLines(hint?.lines || []), cat = hint?.cat ? { cat: hint.cat, sub: hint.sub || "" } : C.guessCat(hint?.base || entry.item, data.cats);
+    if (v > 0) items = [...items, { id: "fr-" + entry.id, type: "out", amt: v, ...cat, pay: "", date: C.ymd(new Date(entry.t)), note: "朋友帳・" + (hint?.base || entry.item), t: entry.t, ...(lines.length ? { lines } : {}) }];
   }
   commit({ ...data, items, friendQ: [...(data.friendQ || []), q],
     friends: entry ? { ...f, entries: [...f.entries, { ...entry, pending: true }] } : { ...f, entries: f.entries.map((e) => (e.id === q.id ? { ...e, del: true, pending: true } : e)) } });
@@ -1158,7 +1194,7 @@ function friendForm(kind, gid0 = ui.fg, into = null) {
         const e = { id: "A" + C.newId(), t: Date.now(), g: st.g, item, amt, payer, to, kind: kind === "pay" ? "pay" : "exp", by: me, src: "App", del: false };
         lsSet("ledger-friend-last", { g: st.g, who: st.who, mode: kind === "pay" ? last.mode : m });
         s.close();
-        queueFriend({ op: "add", e }, e, st.hint);
+        queueFriend({ op: "add", e }, e, { ...(st.hint || {}), lines: st.lines, base: st.item.trim() });
         toast(`已記：${item} ${C.money(amt)}（${describeF(e)}）`);
       });
     };
@@ -1202,7 +1238,7 @@ function friendQuick(p, cat) {
         const me = fr().me, item = ([st.note.trim(), C.linesNote(st.lines)].filter(Boolean).join(" ") || st.sub || cat).slice(0, 40);
         const e = { id: "A" + C.newId(), t: Date.now(), g: p.g, item, amt, payer: p.uid, to: [me], kind: "exp", by: me, src: "App", del: false };
         s.close();
-        queueFriend({ op: "add", e }, e, { cat, sub: st.sub });
+        queueFriend({ op: "add", e }, e, { cat, sub: st.sub, lines: st.lines, base: st.note.trim() || st.sub || cat });
         toast(`已記：${item} ${C.money(amt)}（我欠 ${fname(p.uid, p.g)}）`);
       });
     };
@@ -1923,7 +1959,7 @@ async function onClick(e) {
   if (d.per) { ui.period = C.addMonths(ui.period, +d.per); ui.openCat = null; return render(); }
   if (d.search !== undefined) { ui.search = ""; return render(); }
   if (d.searchClose !== undefined) { ui.search = null; return render(); }
-  if (d.item) { const it = data.items.find((x) => x.id === d.item); if (it) openForm(it); return; }
+  if (d.item) { const it = data.items.find((x) => x.id === d.item); if (it) itemDetail(it); return; }
   if (d.moveId) { const m = data.moves.find((x) => x.id === d.moveId); if (m) moveForm(m); return; }
   if (d.move !== undefined) return moveForm();
   if (d.paycard) { const a = data.accounts.find((x) => x.id === d.paycard), b = a && C.cardBill(data, a, today()); if (b) moveForm(null, { from: a.card.from, to: a.id, amt: b.amount, note: "繳卡費" }); return; }
