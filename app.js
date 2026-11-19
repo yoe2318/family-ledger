@@ -2321,6 +2321,12 @@ function onChange(e) {
 // ================================================================ 開始
 function start() {
   data = load();
+  // 一次性：「餐飲」加上「宵夜」細項（2026-11-20，23 點以後自動選宵夜用）；之後自己刪掉也不會再加回來
+  if (!lsGet("ledger-mig-yexiao", false)) {
+    const food = data.cats.out.find((c) => c.name === "餐飲");
+    if (food && !food.subs.includes("宵夜")) { const i = food.subs.indexOf("晚餐"); const subs = [...food.subs]; subs.splice(i < 0 ? subs.length : i + 1, 0, "宵夜"); data = C.setSubs(data, "out", "餐飲", subs); save(); }
+    lsSet("ledger-mig-yexiao", true);
+  }
   applyTheme();
   ui.period = periodNow(); ui.calMonth = today().slice(0, 7);
   const res = C.applyRecurring(data, today());           // 固定收支：到期的補記

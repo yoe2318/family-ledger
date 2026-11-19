@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------- 預設值
 export const DEFAULT_CATS = {
   out: [
-    { name: "餐飲", icon: "utensils", subs: ["早餐", "午餐", "晚餐", "飲料", "點心"] },
+    { name: "餐飲", icon: "utensils", subs: ["早餐", "午餐", "晚餐", "宵夜", "飲料", "點心"] },
     { name: "交通", icon: "bus", subs: ["捷運公車", "加油", "停車", "計程車"] },
     { name: "日用品", icon: "shopping-cart", subs: [] },
     { name: "購物", icon: "shopping-bag", subs: ["衣服", "3C", "禮物"] },
