@@ -300,5 +300,27 @@ eq("數量：2 以上才存、亂填改回 1", C.cleanLines([{ what: "水餃", a
 eq("數量：備註文字寫 ×2", C.linesNote([{ shop: "八方", what: "水餃", amt: 120, qty: 2 }]), "八方 水餃×2 120");
 eq("數量：一份的價錢", [C.unitPrice({ amt: 120, qty: 2 }), C.unitPrice({ amt: 35 }), C.unitPrice({ amt: 0, qty: 3 })], [60, 35, 0]);
 eq("數量：菜單記一份的價錢", C.findShop(C.shopIndex([{ id: "q", type: "out", amt: 120, cat: "餐飲", date: "2026-11-20", t: 9, lines: [{ shop: "八方", what: "水餃", amt: 120, qty: 2 }] }]), "八方").menu[0].amt, 60);
+// 統計：點進去、付款方式拆朋友帳、店家、每天
+{
+  const it = [
+    { id: "a", type: "out", amt: 100, cat: "其他", sub: "", pay: "現金", date: "2026-11-03", t: 1 },
+    { id: "b", type: "out", amt: 80, cat: "其他", sub: "雜費", pay: "", date: "2026-11-05", t: 2 },
+    { id: "fr-x", type: "out", amt: 60, cat: "餐飲", sub: "午餐", pay: "", date: "2026-11-05", t: 3, lines: [{ shop: "八方", what: "水餃", amt: 120, qty: 2 }] },
+    { id: "c", type: "out", amt: 155, cat: "餐飲", sub: "晚餐", pay: "現金", date: "2026-11-05", t: 4, lines: [{ shop: "八方", what: "水餃", amt: 120, qty: 2, sub: "宵夜" }, { shop: "全家", what: "茶", amt: 35 }] },
+    { id: "d", type: "in", amt: 500, cat: "薪水", date: "2026-11-05", t: 5 },
+  ];
+  eq("統計點進去：沒選細項", C.statItems(it, "out", { cat: "其他", sub: "" }).map((r) => r.item.id), ["a"]);
+  eq("統計點進去：整個分類（新的在前）", C.statItems(it, "out", { cat: "其他" }).map((r) => r.item.id), ["b", "a"]);
+  eq("統計點進去：明細細項只算那一部分", C.statItems(it, "out", { cat: "餐飲", sub: "宵夜" }).map((r) => [r.item.id, r.amt]), [["c", 120]]);
+  eq("統計點進去：剩下的算整筆的細項", C.statItems(it, "out", { cat: "餐飲", sub: "晚餐" }).map((r) => [r.item.id, r.amt]), [["c", 35]]);
+  eq("統計點進去：朋友帳那份／真的沒寫分開", [C.statItems(it, "out", { pay: "@fr" }).map((r) => r.item.id), C.statItems(it, "out", { pay: "" }).map((r) => r.item.id)], [["fr-x"], ["b"]]);
+  eq("統計點進去：店家用明細的金額（朋友帳只分到一部分就照比例縮）", C.statItems(it, "out", { shop: "八方" }).map((r) => [r.item.id, r.amt]), [["c", 120], ["fr-x", 60]]);
+  eq("統計點進去：某一天", C.statItems(it, "out", { day: "2026-11-05" }).length, 3);
+  eq("付款方式拆朋友帳", C.payBreakdown(it).map((p) => [p.key, p.amt]), [["現金", 255], ["", 80], ["@fr", 60]]);
+  eq("店家排行", C.byShop(it).map((x) => [x.name, x.amt, x.count]), [["八方", 180, 2], ["全家", 35, 1]]);
+  const dt = C.dailyTotals(it, "2026-11", 1);
+  eq("每天：整期的天數、金額", [dt.length, dt[2].amt, dt[4].amt, dt[0].amt], [30, 100, 295, 0]);
+  eq("每天：起算日不是 1 號", [C.dailyTotals([], "2026-11", 25).length, C.dailyTotals([], "2026-11", 25)[0].date], [30, "2026-11-25"]);
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

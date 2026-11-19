@@ -801,3 +801,61 @@ export function setShop(data, name, patch) {
   return { ...data, shops: cleanShops([...shops.filter((s) => s.name !== name), next]) };
 }
 export const delShop = (data, name) => ({ ...data, shops: (data.shops || []).filter((s) => s.name !== name) });
+
+// ---------------------------------------------------------------- 統計：點進去看是哪幾筆、付款方式拆朋友帳、店家排行、每天
+// 一筆在各細項的分法（跟 bySub 一樣）：明細有選細項的先分過去，剩下算 x.sub
+function subSplit(x) {
+  const out = [];
+  let rest = x.amt;
+  for (const l of (x.lines || []).filter((l) => l.sub && l.amt > 0)) { const a = Math.min(l.amt, rest); if (a > 0) { out.push({ sub: l.sub, amt: a }); rest -= a; } }
+  if (rest > 0) out.push({ sub: x.sub || "", amt: rest });
+  return out;
+}
+const isFrNoPay = (x) => String(x.id).startsWith("fr-") && !x.pay;
+// 一筆在各店家花了多少：明細合計比這筆大（例如朋友帳只分到一部分）就照比例縮成這筆的金額
+function shopAmounts(x) {
+  const ls = cleanLines(x.lines || []).filter((l) => l.shop), tot = ls.reduce((a, l) => a + l.amt, 0), k = tot > x.amt ? x.amt / tot : 1, m = new Map();
+  for (const l of ls) m.set(l.shop, (m.get(l.shop) || 0) + l.amt * k);
+  for (const [s, v] of m) m.set(s, Math.round(v));
+  return m;
+}
+// 統計某一列是哪幾筆：f＝{ cat } | { cat, sub } | { pay }（"@fr"＝朋友帳那份，""＝沒寫）| { shop } | { day }；回傳 [{ item, amt }]，amt＝算在這一列的部分，新的在前
+export function statItems(items, type, f) {
+  const out = [];
+  for (const x of sortItems(items)) {
+    if (x.type !== type) continue;
+    let amt = 0;
+    if ("sub" in f) amt = x.cat === f.cat ? subSplit(x).filter((p) => p.sub === f.sub).reduce((a, p) => a + p.amt, 0) : 0;
+    else if ("cat" in f) amt = x.cat === f.cat ? x.amt : 0;
+    else if ("pay" in f) amt = (f.pay === "@fr" ? isFrNoPay(x) : f.pay === "" ? !x.pay && !isFrNoPay(x) : x.pay === f.pay) ? x.amt : 0;
+    else if ("shop" in f) amt = shopAmounts(x).get(f.shop) || 0;
+    else if ("day" in f) amt = x.date === f.day ? x.amt : 0;
+    if (amt > 0) out.push({ item: x, amt });
+  }
+  return out;
+}
+// 付款方式加總，朋友帳那份（朋友先付、沒寫付款方式）另外一列 "@fr"
+export function payBreakdown(items, type = "out") {
+  return groupSum(items.filter((x) => x.type === type).map((x) => ({ amt: x.amt, k: isFrNoPay(x) ? "@fr" : x.pay || "" })), "k").map(({ name, amt, share }) => ({ key: name, amt, share }));
+}
+// 店家排行（從明細）：[{ name, amt, count }]，金額大的在前
+export function byShop(items) {
+  const m = new Map();
+  for (const x of items) {
+    if (x.type !== "out") continue;
+    for (const [name, amt] of shopAmounts(x)) {
+      const s = m.get(name) || { name, amt: 0, count: 0 };
+      s.amt += amt; s.count++;
+      m.set(name, s);
+    }
+  }
+  return [...m.values()].filter((s) => s.amt > 0).sort((a, b) => b.amt - a.amt || b.count - a.count);
+}
+// 這一期每一天的金額：[{ date, amt }]（沒花錢的日子是 0）
+export function dailyTotals(items, key, s = 1, type = "out") {
+  const [a, b] = periodRange(key, s), sum = {};
+  for (const x of items) if (x.type === type && x.date >= a && x.date <= b) sum[x.date] = (sum[x.date] || 0) + x.amt;
+  const out = [];
+  for (let d = a; d <= b; d = addDays(d, 1)) out.push({ date: d, amt: sum[d] || 0 });
+  return out;
+}

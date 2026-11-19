@@ -499,3 +499,24 @@ body.has-bgimg .app:not(.home) > .row-btns { margin-top: 0; padding-top: 16px; p
 .ln-qty .icon-btn:disabled { opacity: .35; }
 .ln-qty b { min-width: 1.5em; text-align: center; color: var(--ink); font-weight: 500; }
 .ln-qty small { margin-left: 4px; }
+
+/* 統計：比上期、點進去、每天、店家 */
+.cmp { display: block; font-size: 12px; }
+.dl { color: var(--muted); white-space: nowrap; }
+.dl.bad { color: var(--bad); }
+.dl.good { color: var(--ok); }
+button.stat { cursor: pointer; color: inherit; font: inherit; }
+.stat .v .chev .ico { width: 14px; height: 14px; vertical-align: -2px; color: var(--muted); margin-left: 2px; }
+.stat-all { display: flex; align-items: center; gap: 4px; justify-content: flex-end; width: 100%; padding: 6px 0 8px; border: 0; border-bottom: 1px solid var(--line-2); background: none; color: var(--accent-ink); font: inherit; font-size: 13px; }
+.stat-all .ico { width: 14px; height: 14px; }
+.days { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; align-items: end; height: 110px; padding-top: 18px; border-bottom: 1px solid var(--line); }
+.days .d { position: relative; height: 100%; padding: 0; border: 0; background: none; display: flex; align-items: flex-end; justify-content: center; }
+.days .d i { display: block; width: 100%; min-height: 0; background: color-mix(in srgb, var(--accent) 40%, var(--surface-2)); border-radius: 2px 2px 0 0; }
+.days .d.top i, .days .d.now i { background: var(--accent); }
+.days .d span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.days .d:first-child span { left: 0; transform: none; }
+.days .d:last-child span, .days .d:nth-last-child(-n+3) span { left: auto; right: 0; transform: none; }
+.days-x { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; font-size: 11px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
+.days-x span { overflow: visible; white-space: nowrap; }
+.trend .col { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.drill .item .amt small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; text-align: right; }

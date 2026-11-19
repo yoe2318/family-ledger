@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.1";
+const VERSION = "1.6.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -817,13 +817,13 @@ async function deleteItem(item, s) {
   toast("刪掉了", { label: "復原", run: () => commit({ ...data, items: [...data.items, old] }) });
 }
 // 點一筆：先看詳細內容，按「編輯」才進編輯畫面（同一個面板換過去）
-function itemDetail(it) {
+function itemDetail(it, into = null) {
   const W = "日一二三四五六";
   const d = new Date(it.date + "T00:00"), date = `${it.date.replace(/-/g, "/")}（${W[d.getDay()]}）`;
   const isFr = String(it.id).startsWith("fr-"), fe = isFr ? fr().entries.find((e) => "fr-" + e.id === it.id) : null;
   const lines = C.cleanLines(it.lines || []), lt = C.linesTotal(lines);
   const row = (k, v) => (v ? `<div class="dt-row"><span class="k">${k}</span><span class="v">${v}</span></div>` : "");
-  openSheet((el, s) => {
+  sheetFor(into)((el, s) => {
     el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico(catIcon(it.type, it.cat))}</span><h3>${esc(it.sub || it.cat)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
       <div class="dt-amt amt ${it.type}">${it.type === "in" ? "+" : "−"}${C.money(it.amt)}</div>
       <div class="detail">
@@ -906,29 +906,74 @@ function renderHome() {
 // ================================================================ 統計
 function renderStats() {
   const s = data.prefs.monthStart, list = C.periodItems(data.items, ui.period, s), type = ui.statType, t = C.totals(list);
+  const prevList = C.periodItems(data.items, C.addMonths(ui.period, -1), s), pt = C.totals(prevList);
+  const prevCat = new Map(C.byCategory(prevList, type).map((c) => [c.name, c.amt]));
   const cats = C.byCategory(list, type), max = Math.max(1, ...cats.map((c) => c.amt));
   const bc = type === "out" ? data.budget.cats : {};
+  const sd = (f) => esc(JSON.stringify(f));
   const rows = cats.map((c) => {
     const open = ui.openCat === c.name, budget = bc[c.name] || 0, over = budget && c.amt > budget;
     const subs = open ? C.bySub(list, type, c.name) : [];
-    const sm = Math.max(1, ...subs.map((x) => x.amt));
+    const sm = Math.max(1, ...subs.map((x) => x.amt)), n = open ? C.statItems(list, type, { cat: c.name }).length : 0;
     return `<button class="stat" data-ocat="${esc(c.name)}" aria-expanded="${open}"><span class="nm">${esc(c.name)}</span>
         <span class="track${over ? " over" : ""}"><i style="width:${((c.amt / max) * 100).toFixed(1)}%"></i></span>
-        <span class="v">${C.money(c.amt)}<small>${Math.round(c.share * 100)}%${budget ? `・預算 ${Math.round((c.amt / budget) * 100)}%` : ""}</small></span></button>
-      ${subs.map((x) => `<div class="stat sub"><span class="nm muted">${esc(x.name || "（沒選細項）")}</span><span class="track"><i style="width:${((x.amt / sm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(x.amt)}</span></div>`).join("")}`;
+        <span class="v">${C.money(c.amt)}<small>${Math.round(c.share * 100)}%${budget ? `・預算 ${Math.round((c.amt / budget) * 100)}%` : ""}${deltaHTML(c.amt, prevCat.get(c.name) || 0, type, true)}</small></span></button>
+      ${subs.map((x) => `<button class="stat sub" data-sd="${sd({ cat: c.name, sub: x.name })}"><span class="nm muted">${esc(x.name || "（沒選細項）")}</span><span class="track"><i style="width:${((x.amt / sm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(x.amt)}<span class="chev">${ico("chevron-right")}</span></span></button>`).join("")}
+      ${open ? `<button class="stat-all" data-sd="${sd({ cat: c.name })}">看「${esc(c.name)}」全部 ${n} 筆 ${ico("chevron-right")}</button>` : ""}`;
   }).join("");
-  const pays = type === "out" ? C.byPay(list, "out") : [], pm = Math.max(1, ...pays.map((p) => p.amt));
+  const pays = type === "out" ? C.payBreakdown(list, "out") : [], pm = Math.max(1, ...pays.map((p) => p.amt));
+  const payName = (k) => (k === "@fr" ? "朋友帳" : k || "沒寫");
+  const noPay = pays.find((p) => p.key === "");
+  const days = C.dailyTotals(data.items, ui.period, s, type), dm = Math.max(1, ...days.map((d) => d.amt)), spent = days.filter((d) => d.amt > 0);
+  const today0 = today(), passed = days.filter((d) => d.date <= today0).length || days.length;
+  const shops = type === "out" ? C.byShop(list).slice(0, 8) : [], shm = Math.max(1, ...shops.map((x) => x.amt));
   const trend = C.lastPeriods(data.items, ui.period, s, 6), tm = Math.max(1, ...trend.map((x) => x[type]));
   return `${periodNav()}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 0 4px">
       <div class="seg"><button data-stype="out" class="${type === "out" ? "on" : ""}">支出</button><button data-stype="in" class="${type === "in" ? "on" : ""}">收入</button></div>
-      <span>合計 <b class="num" style="font-size:20px">${C.money(t[type])}</b></span></div>
+      <span style="text-align:right">合計 <b class="num" style="font-size:20px">${C.money(t[type])}</b>${pt[type] || t[type] ? `<small class="cmp">${deltaHTML(t[type], pt[type], type)}</small>` : ""}</span></div>
     <div class="sec-h"><span>分類（點一下看細項）</span></div>
     ${rows || `<div class="empty">這期沒有${type === "out" ? "支出" : "收入"}。</div>`}
-    ${pays.length > 1 || (pays.length === 1 && pays[0].name) ? `<div class="sec-h"><span>付款方式</span></div>${pays.map((p) => `<div class="stat"><span class="nm">${esc(p.name || "沒寫")}</span><span class="track"><i style="width:${((p.amt / pm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(p.amt)}</span></div>`).join("")}` : ""}
-    <div class="sec-h"><span>近 6 期${type === "out" ? "支出" : "收入"}</span></div>
-    <div class="trend">${trend.map((x) => `<div class="col${x.key === ui.period ? " cur" : ""}"><span>${x[type] ? C.money(x[type]) : ""}</span><i style="height:${((x[type] / tm) * 100).toFixed(1)}%"></i></div>`).join("")}</div>
+    ${pays.length > 1 || (pays.length === 1 && pays[0].key) ? `<div class="sec-h"><span>付款方式（點一下看是哪幾筆）</span></div>${pays.map((p) => `<button class="stat" data-sd="${sd({ pay: p.key })}"><span class="nm">${esc(payName(p.key))}</span><span class="track"><i style="width:${((p.amt / pm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(p.amt)}<small>${p.key === "@fr" ? "朋友先付的那份" : Math.round(p.share * 100) + "%"}</small></span></button>`).join("")}
+      ${noPay ? `<p class="small muted" style="margin:6px 0 0">「沒寫」是沒填付款方式的，點進去可以一筆一筆補上。</p>` : ""}` : ""}
+    ${spent.length ? `<div class="sec-h"><span>每天</span><span>平均一天 ${C.money(Math.round(t[type] / passed))}</span></div>
+      <div class="days" style="--n:${days.length}">${days.map((d) => `<button class="d${d.amt === dm ? " top" : ""}${d.date === today0 ? " now" : ""}" data-sday="${d.date}"${d.amt ? "" : " disabled"} aria-label="${Number(d.date.slice(5, 7))}/${Number(d.date.slice(8))} ${C.money(d.amt)}"><i style="height:${((d.amt / dm) * 100).toFixed(1)}%"></i>${d.amt === dm ? `<span>${C.money(d.amt)}</span>` : ""}</button>`).join("")}</div>
+      <div class="days-x" style="--n:${days.length}">${days.map((d) => { const n = Number(d.date.slice(8)); return `<span>${n === 1 || n % 5 === 0 ? (n === 1 ? `${Number(d.date.slice(5, 7))}/1` : n) : ""}</span>`; }).join("")}</div>` : ""}
+    ${shops.length ? `<div class="sec-h"><span>店家排行（從明細）</span></div>${shops.map((x) => `<button class="stat" data-sd="${sd({ shop: x.name })}"><span class="nm">${esc(x.name)}</span><span class="track"><i style="width:${((x.amt / shm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(x.amt)}<small>${x.count} 次</small></span></button>`).join("")}` : ""}
+    <div class="sec-h"><span>近 6 期${type === "out" ? "支出" : "收入"}（點一下切過去）</span></div>
+    <div class="trend">${trend.map((x) => `<button class="col${x.key === ui.period ? " cur" : ""}" data-tper="${x.key}"><span>${x[type] ? C.money(x[type]) : ""}</span><i style="height:${((x[type] / tm) * 100).toFixed(1)}%"></i></button>`).join("")}</div>
     <div class="trend-x">${trend.map((x) => `<span>${Number(x.key.slice(5))}月</span>`).join("")}</div>`;
+}
+// 比上期：支出變多是紅、變少是綠（收入反過來）；short＝分類那列用的短版
+function deltaHTML(cur, prev, type, short = false) {
+  const d = cur - prev;
+  if (!d) return short ? "" : `<span class="dl">和上期一樣</span>`;
+  const up = d > 0, bad = type === "out" ? up : !up, pct = prev ? Math.round((Math.abs(d) / prev) * 100) : null;
+  const txt = `${up ? "↑" : "↓"} ${C.money(Math.abs(d))}${!short && pct !== null ? `（${up ? "+" : "−"}${pct}%）` : ""}`;
+  return `<span class="dl ${bad ? "bad" : "good"}">${short ? "・" : "比上期 "}${txt}</span>`;
+}
+// 統計點進去：列出是哪幾筆；點一筆＝同一個面板換成詳細內容
+function statDrill(f) {
+  const s0 = data.prefs.monthStart, type = ui.statType, list = C.periodItems(data.items, ui.period, s0);
+  const rows = C.statItems(list, type, f), tot = rows.reduce((a, r) => a + r.amt, 0);
+  const W = "日一二三四五六", dd = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}（${W[new Date(d + "T00:00").getDay()]}）`;
+  const title = f.day ? dd(f.day) : f.shop ? f.shop : "pay" in f ? (f.pay === "@fr" ? "朋友帳（朋友先付的那份）" : f.pay || "沒寫付款方式") : "sub" in f ? `${f.cat}・${f.sub || "沒選細項"}` : f.cat;
+  openSheet((el, s) => {
+    el.innerHTML = `<div class="sheet-h"><h3>${esc(title)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      <p class="small muted" style="margin:0 0 8px">${esc(C.periodLabel(ui.period, s0))}・${rows.length} 筆・合計 <b class="num">${C.money(tot)}</b>${"pay" in f && f.pay === "" ? "<br>點一筆 → 編輯，就可以補上付款方式。" : ""}</p>
+      <div class="drill">${rows.map(({ item: x, amt }) => {
+        const meta = [f.day ? "" : dd(x.date), x.sub ? `${x.cat}・${x.sub}` : x.cat, x.type === "out" && !("pay" in f) ? x.pay : "", x.note, C.linesNote(x.lines || [])].filter(Boolean).join("・");
+        return `<button class="item" data-ditem="${esc(x.id)}"><span class="cat-ico">${ico(catIcon(x.type, x.cat))}</span>
+          <span style="min-width:0"><div class="name">${esc(x.sub || x.cat)}</div><div class="meta">${esc(meta)}</div></span>
+          <span class="amt ${x.type}">${x.type === "in" ? "+" : "−"}${C.money(x.amt)}${amt !== x.amt ? `<small>其中 ${C.money(amt)}</small>` : ""}</span></button>`;
+      }).join("") || `<div class="empty">沒有紀錄。</div>`}</div>`;
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      if (t.dataset.close !== undefined) s.close();
+      if (t.dataset.ditem) { const it = data.items.find((x) => x.id === t.dataset.ditem); if (it) itemDetail(it, s); }
+    });
+  });
 }
 
 // ================================================================ 點年月：月份選擇（一年 12 格，寫每月花多少，花越多底色越深）
@@ -2152,6 +2197,9 @@ async function onClick(e) {
   if (d.back !== undefined) return history.back();
   if (d.stype) { ui.statType = d.stype; ui.openCat = null; return render(); }
   if (d.ocat !== undefined) { ui.openCat = ui.openCat === d.ocat ? null : d.ocat; return render(); }
+  if (d.sd) { try { return statDrill(JSON.parse(d.sd)); } catch { return; } }
+  if (d.sday) return statDrill({ day: d.sday });
+  if (d.tper) { ui.period = d.tper; ui.openCat = null; return render(); }
   if (d.cal) return calShift(+d.cal);
   if (d.mpick !== undefined) return monthPicker();
   if (d.day) { ui.calDay = ui.calDay === d.day ? "" : d.day; return render(); }
