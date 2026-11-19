@@ -326,7 +326,7 @@ eq("數量：菜單記一份的價錢", C.findShop(C.shopIndex([{ id: "q", type:
 {
   const at = (h, m = 0) => new Date(2026, 10, 20, h, m);
   const S = ["早餐", "午餐", "晚餐", "飲料", "點心"];
-  eq("哪一餐：8 點早餐、10:29 早餐、10:30 午餐", [C.mealByTime(S, at(8)), C.mealByTime(S, at(10, 29)), C.mealByTime(S, at(10, 30))], ["早餐", "早餐", "午餐"]);
+  eq("哪一餐：8 點早餐、11:59 早餐、12:00 午餐", [C.mealByTime(S, at(8)), C.mealByTime(S, at(11, 59)), C.mealByTime(S, at(12))], ["早餐", "早餐", "午餐"]);
   eq("哪一餐：下午點心、晚上晚餐、22 點沒有宵夜就算晚餐", [C.mealByTime(S, at(15)), C.mealByTime(S, at(18, 30)), C.mealByTime(S, at(22))], ["點心", "晚餐", "晚餐"]);
   eq("哪一餐：有宵夜細項就用、半夜沒有就不猜", [C.mealByTime([...S, "宵夜"], at(22)), C.mealByTime([...S, "宵夜"], at(1)), C.mealByTime(S, at(1))], ["宵夜", "宵夜", ""]);
   eq("哪一餐：沒有這些細項的分類不猜", [C.mealByTime(["捷運公車", "加油"], at(8)), C.mealByTime([], at(8)), C.mealByTime(["早餐", "晚餐"], at(15))], ["", "", ""]);

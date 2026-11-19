@@ -861,8 +861,8 @@ export function dailyTotals(items, key, s = 1, type = "out") {
 }
 
 // ---------------------------------------------------------------- 依時間猜是哪一餐（分類裡有這個細項才用）
-// 05:00–10:29 早餐、10:30–14:29 午餐、14:30–16:59 點心、17:00–20:59 晚餐、21:00 以後宵夜（沒有「宵夜」就算晚餐，半夜不猜）
-export const MEAL_TIMES = [[300, "早餐"], [630, "午餐"], [870, "點心"], [1020, "晚餐"], [1260, "宵夜"]];
+// 05:00–11:59 早餐、12:00–14:29 午餐、14:30–16:59 點心、17:00–20:59 晚餐、21:00 以後宵夜（沒有「宵夜」就算晚餐，半夜不猜）
+export const MEAL_TIMES = [[300, "早餐"], [720, "午餐"], [870, "點心"], [1020, "晚餐"], [1260, "宵夜"]];
 export function mealByTime(subs, when = new Date()) {
   const m = when.getHours() * 60 + when.getMinutes();
   if (!Array.isArray(subs) || !subs.some((s) => MEAL_TIMES.some(([, n]) => n === s))) return "";
