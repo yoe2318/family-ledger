@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.0";
+const VERSION = "1.6.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -487,6 +487,7 @@ function linesHTML(st, subs = []) {
       <input data-ln="${i}" data-lk="what" value="${esc(l.what)}" placeholder="吃了什麼" maxlength="30" aria-label="吃了什麼">
       <input data-ln="${i}" data-lk="amt" value="${esc(l.amt)}" placeholder="金額" inputmode="numeric" class="la" aria-label="金額">
       <button class="icon-btn" data-lrm="${i}" aria-label="刪掉這一列">${ico("x")}</button></div>
+      ${l.what ? `<div class="ln-qty"><span>數量</span><button class="icon-btn" data-lq="${i}" data-d="-1" aria-label="少一份"${(+l.qty || 1) <= 1 ? " disabled" : ""}>−</button><b class="num">${+l.qty || 1}</b><button class="icon-btn" data-lq="${i}" data-d="1" aria-label="多一份">＋</button>${(+l.qty || 1) > 1 && C.unitPrice({ amt: +l.amt, qty: +l.qty }) ? `<small>一份 ${C.money(C.unitPrice({ amt: +l.amt, qty: +l.qty }))}</small>` : ""}</div>` : ""}
       <div class="ln-menu pick-row" data-lnm="${i}">${lnMenu(idx, l, i, st.lnAll === i)}</div>`).join("")}
     <button class="btn text small" data-ladd style="padding:4px 0">${ico("plus")}明細（店家、吃了什麼、金額）</button></div>`;
 }
@@ -509,7 +510,7 @@ function bindLines(el, st, draw) {
   });
   el.addEventListener("change", (e) => { if (e.target.dataset.lk === "shop") st.onShop?.(e.target.value.trim()); });
   el.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-ladd], [data-lrm], [data-shopq], [data-lpick], [data-lsame], [data-lmore], [data-lphoto]");
+    const t = e.target.closest("[data-ladd], [data-lrm], [data-shopq], [data-lpick], [data-lsame], [data-lmore], [data-lphoto], [data-lq]");
     if (!t) return;
     const d = t.dataset, str = (v) => (v ? String(v) : "");
     if (d.ladd !== undefined) { st.lines.push(blankLine()); draw(); el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="shop"]`)?.focus(); return; }
@@ -519,14 +520,23 @@ function bindLines(el, st, draw) {
       if (last && !last.shop && !last.what) last.shop = d.shopq; else st.lines.push({ ...blankLine(), shop: d.shopq });
       draw(); st.onShop?.(d.shopq); return;
     }
-    if (d.lpick !== undefined) { // 點菜單的品項：這一列還沒填品名就填進去，不然新增一列
+    if (d.lq !== undefined) {    // 數量 ＋／−：金額＝一份的價錢×數量
+      const l = st.lines[+d.lq], q0 = +l?.qty || 1, q1 = Math.min(99, Math.max(1, q0 + +d.d));
+      if (!l || q1 === q0) return;
+      const unit = C.unitPrice({ amt: +l.amt || 0, qty: q0 });
+      l.qty = q1; if (unit) l.amt = String(unit * q1);
+      draw(); sync(); return;
+    }
+    if (d.lpick !== undefined) { // 點菜單的品項：同一家已經點過這樣就 ×2（再點 ×3…）；這一列還沒填品名就填進去；不然新增一列
       const i = +d.lpick, l = st.lines[i], row = { what: d.lw, amt: str(d.la), ...(d.ls ? { sub: d.ls } : {}) };
-      if (l && !l.what) Object.assign(l, row); else st.lines.splice(i + 1, 0, { ...blankLine(), shop: l?.shop || "", ...row });
+      const same = st.lines.find((x) => x.shop === (l?.shop || "") && x.what === d.lw);
+      if (same) { const q = (+same.qty || 1) + 1, unit = C.unitPrice({ amt: +same.amt || 0, qty: q - 1 }) || +d.la || 0; same.qty = q; if (unit) same.amt = String(unit * q); }
+      else if (l && !l.what) Object.assign(l, row); else st.lines.splice(i + 1, 0, { ...blankLine(), shop: l?.shop || "", ...row });
       st.lnAll = null; draw(); sync(); return;
     }
     if (d.lsame !== undefined) { // 跟上次一樣：上次在這家點的整張單
       const i = +d.lsame, s = C.findShop(shopIdx(), st.lines[i]?.shop);
-      if (s) st.lines.splice(i, 1, ...s.lastOrder.map((x) => ({ shop: x.shop, what: x.what, amt: str(x.amt), ...(x.sub ? { sub: x.sub } : {}) })));
+      if (s) st.lines.splice(i, 1, ...s.lastOrder.map((x) => ({ shop: x.shop, what: x.what, amt: str(x.amt), ...(x.qty ? { qty: x.qty } : {}), ...(x.sub ? { sub: x.sub } : {}) })));
       draw(); sync(); return;
     }
     if (d.lmore !== undefined) { st.lnAll = +d.lmore; draw(); return; }
@@ -825,7 +835,7 @@ function itemDetail(it) {
         ${fe ? row("朋友帳", esc(`${fr().groups.find((g) => g.id === fe.g)?.name || ""}・${describeF(fe)}`)) : ""}
         ${it.rec ? row("固定收支", "自動記的") : ""}
       </div>
-      ${lines.length ? `<div class="sec-h"><span>明細</span></div><div class="dt-lines">${lines.map((l) => `<div class="dt-line"><span>${esc([l.shop, l.what].filter(Boolean).join(" "))}${l.sub ? ` <small class="tag">${esc(l.sub)}</small>` : ""}</span><b class="num">${l.amt ? C.money(l.amt) : ""}</b></div>`).join("")}
+      ${lines.length ? `<div class="sec-h"><span>明細</span></div><div class="dt-lines">${lines.map((l) => `<div class="dt-line"><span>${esc([l.shop, l.what].filter(Boolean).join(" "))}${l.qty ? ` <small class="muted">×${l.qty}</small>` : ""}${l.sub ? ` <small class="tag">${esc(l.sub)}</small>` : ""}</span><b class="num">${l.amt ? C.money(l.amt) : ""}</b></div>`).join("")}
         ${lines.length > 1 ? `<div class="dt-line sum"><span>合計</span><b class="num">${C.money(lt)}</b></div>` : ""}</div>
         ${isFr && lt && lt !== it.amt ? `<p class="small muted" style="margin:4px 0 0">明細是整筆的金額，你分到的是 ${C.money(it.amt)}</p>` : ""}` : ""}
       <div class="row-btns"><button class="btn primary grow" data-dedit>${ico("pencil")}編輯</button><button class="btn danger" data-ddel>${ico("trash")}刪除</button></div>`;

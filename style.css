@@ -492,3 +492,10 @@ body.has-bgimg .app:not(.home) > .row-btns { margin-top: 0; padding-top: 16px; p
 .photo-view .pv-h .icon-btn { color: #fff; }
 .photo-view .pv-img { overflow: auto; touch-action: pinch-zoom pan-x pan-y; display: grid; place-items: center; padding-bottom: env(safe-area-inset-bottom); }
 .photo-view img { max-width: 100%; height: auto; }
+
+/* 明細的數量（− 2 ＋） */
+.ln-qty { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -2px 36px 4px 0; font-size: 13px; color: var(--muted); }
+.ln-qty .icon-btn { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 16px; color: var(--ink); }
+.ln-qty .icon-btn:disabled { opacity: .35; }
+.ln-qty b { min-width: 1.5em; text-align: center; color: var(--ink); font-weight: 500; }
+.ln-qty small { margin-left: 4px; }

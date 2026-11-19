@@ -295,5 +295,10 @@ eq("中間按鈕偏好", ((p) => [p.fabImg, p.fabPlus, p.fabCrop])(C.cleanData({
   eq("刪店家：只刪自己整理的", C.delShop(d1, "麥當勞").shops.length + C.delShop(d1, "麥當勞").items.length, 2);
   eq("備份還原會帶店家", C.cleanData({ items: [], shops: [{ name: "X" }] }).shops.map((s) => s.name), ["X"]);
 }
+// 明細的數量
+eq("數量：2 以上才存、亂填改回 1", C.cleanLines([{ what: "水餃", amt: 120, qty: 2 }, { what: "湯", amt: 35, qty: 1 }, { what: "茶", amt: 20, qty: "x" }]).map((l) => l.qty), [2, undefined, undefined]);
+eq("數量：備註文字寫 ×2", C.linesNote([{ shop: "八方", what: "水餃", amt: 120, qty: 2 }]), "八方 水餃×2 120");
+eq("數量：一份的價錢", [C.unitPrice({ amt: 120, qty: 2 }), C.unitPrice({ amt: 35 }), C.unitPrice({ amt: 0, qty: 3 })], [60, 35, 0]);
+eq("數量：菜單記一份的價錢", C.findShop(C.shopIndex([{ id: "q", type: "out", amt: 120, cat: "餐飲", date: "2026-11-20", t: 9, lines: [{ shop: "八方", what: "水餃", amt: 120, qty: 2 }] }]), "八方").menu[0].amt, 60);
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

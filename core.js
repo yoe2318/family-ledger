@@ -620,12 +620,15 @@ export function parseCode(text) {
 // 每列 { shop, what, amt }；三格都空的列丟掉；金額只收正整數（沒寫＝0）
 export function cleanLines(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.map((l) => ({ shop: String(l?.shop ?? "").trim().slice(0, 20), what: String(l?.what ?? "").trim().slice(0, 30), amt: Math.max(0, Math.round(Number(l?.amt) || 0)), ...(String(l?.sub ?? "").trim() ? { sub: String(l.sub).trim().slice(0, 12) } : {}) }))
+  const q = (v) => Math.min(99, Math.max(1, Math.round(Number(v) || 1)));
+  return raw.map((l) => ({ shop: String(l?.shop ?? "").trim().slice(0, 20), what: String(l?.what ?? "").trim().slice(0, 30), amt: Math.max(0, Math.round(Number(l?.amt) || 0)), ...(q(l?.qty) > 1 ? { qty: q(l.qty) } : {}), ...(String(l?.sub ?? "").trim() ? { sub: String(l.sub).trim().slice(0, 12) } : {}) }))
     .filter((l) => l.shop || l.what || l.amt).slice(0, 10);
 }
 export const linesTotal = (lines) => cleanLines(lines).reduce((a, l) => a + l.amt, 0);
 // 「麥味登 蛋餅奶茶 75 ＋ 7-11 咖啡 45」
-export const linesNote = (lines) => cleanLines(lines).map((l) => [l.shop, l.what, l.amt ? String(l.amt) : ""].filter(Boolean).join(" ")).join(" ＋ ");
+export const linesNote = (lines) => cleanLines(lines).map((l) => [l.shop, l.what && l.qty ? `${l.what}×${l.qty}` : l.what, l.amt ? String(l.amt) : ""].filter(Boolean).join(" ")).join(" ＋ ");
+// 一份的價錢（金額是這一列的總額，有數量就除回去）
+export const unitPrice = (l) => (l.amt ? Math.round(l.amt / (l.qty || 1)) : 0);
 // 最近用過的店家（新的在前、不重複），給輸入框的建議清單
 export function recentShops(items, n = 20) {
   const out = [];
@@ -754,7 +757,7 @@ export function shopIndex(items, shops = []) {
       if (!l.what) continue;
       const it = s.menu.get(l.what) || { what: l.what, amt: 0, sub: "", count: 0, lastT: -1, mine: false };
       it.count++;
-      if (t >= it.lastT) { it.lastT = t; if (l.amt) it.amt = l.amt; it.sub = l.sub || ""; }
+      if (t >= it.lastT) { it.lastT = t; if (l.amt) it.amt = unitPrice(l); it.sub = l.sub || ""; }
       s.menu.set(l.what, it);
     }
   }
