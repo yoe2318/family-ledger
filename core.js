@@ -859,3 +859,16 @@ export function dailyTotals(items, key, s = 1, type = "out") {
   for (let d = a; d <= b; d = addDays(d, 1)) out.push({ date: d, amt: sum[d] || 0 });
   return out;
 }
+
+// ---------------------------------------------------------------- 依時間猜是哪一餐（分類裡有這個細項才用）
+// 05:00–10:29 早餐、10:30–14:29 午餐、14:30–16:59 點心、17:00–20:59 晚餐、21:00 以後宵夜（沒有「宵夜」就算晚餐，半夜不猜）
+export const MEAL_TIMES = [[300, "早餐"], [630, "午餐"], [870, "點心"], [1020, "晚餐"], [1260, "宵夜"]];
+export function mealByTime(subs, when = new Date()) {
+  const m = when.getHours() * 60 + when.getMinutes();
+  if (!Array.isArray(subs) || !subs.some((s) => MEAL_TIMES.some(([, n]) => n === s))) return "";
+  if (m < 300) return subs.includes("宵夜") ? "宵夜" : "";
+  let name = "";
+  for (const [t, n] of MEAL_TIMES) if (m >= t) name = n;
+  if (name === "宵夜" && !subs.includes("宵夜")) name = "晚餐";
+  return subs.includes(name) ? name : "";
+}

@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.4";
+const VERSION = "1.6.5";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -580,6 +580,8 @@ function openForm(item = null, preset = {}, into = null) {
   const f = item ? { ...item, expr: String(item.amt) } : { type: "out", cat: "", sub: "", pay: data.prefs.lastPay, date: today(), note: "", expr: "", ...preset };
   if (!f.cat) f.cat = data.cats[f.type][0]?.name || "其他";
   if (f.type === "in" && !f.acct) f.acct = C.acctFor(data, "in", "");
+  const autoMeal = () => { if (!item && f.type === "out" && !f.sub && f.date === today()) f.sub = C.mealByTime(catOf("out", f.cat)?.subs || []); };   // 依時間帶入早餐／午餐／晚餐
+  autoMeal();
   f.lines = (item?.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" }));
   let makeShortcut = false, catTouched = !!item || !!preset.cat;      // 自己點過分類（或是改舊的那筆）就不自動換
   let redraw = () => {};
@@ -631,7 +633,7 @@ function openForm(item = null, preset = {}, into = null) {
         if (t.dataset.type !== f.type) { f.type = t.dataset.type; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; f.acct = f.type === "in" ? C.acctFor(data, "in", "") : ""; draw(); }
         return;
       }
-      if (t.dataset.cat) { catTouched = true; if (f.cat !== t.dataset.cat) { f.cat = t.dataset.cat; f.sub = ""; } draw(); return; }
+      if (t.dataset.cat) { catTouched = true; if (f.cat !== t.dataset.cat) { f.cat = t.dataset.cat; f.sub = ""; autoMeal(); } draw(); return; }
       if (t.dataset.sub !== undefined) { catTouched = true; f.sub = toggleSub(f.sub, t.dataset.sub, catOf(f.type, f.cat)?.subs || []); draw(); return; }
       if (t.dataset.cnew !== undefined) return catForm(f.type, null, (name) => { if (name) { f.cat = name; f.sub = ""; } draw(); });
       if (t.dataset.snew !== undefined) { const v = await addSubTo(f.type, f.cat); if (v) f.sub = [...C.subParts(f.sub), v].join("＋"); return draw(); }
@@ -650,8 +652,8 @@ function openForm(item = null, preset = {}, into = null) {
 }
 
 // 只打金額（長按一劃放手後、或捷徑沒有金額時）
-function quickAmount({ type = "out", cat, sub = "", pay, note = "", title }) {
-  const st = { expr: "", sub, note, date: today(), lines: [] };
+function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal = false }) {
+  const st = { expr: "", sub: sub || (meal && type === "out" ? C.mealByTime(catOf(type, cat)?.subs || []) : ""), note, date: today(), lines: [] };
   openSheet((el, s) => {
     const subsOf = () => catOf(type, cat)?.subs || [];
     const draw = () => {
@@ -792,7 +794,7 @@ function bindFab(btn) {
     if (cancel || s.hit?.ring !== "cat") return;
     if (s.friend) return friendQuick(s.friend, s.cats[s.hit.idx]);
     const pay = s.pay ?? (s.pays.includes(data.prefs.lastPay) ? data.prefs.lastPay : s.pays[0] || "");
-    quickAmount({ type: "out", cat: s.cats[s.hit.idx], pay });
+    quickAmount({ type: "out", cat: s.cats[s.hit.idx], pay, meal: true });
   };
   btn.addEventListener("pointerup", (e) => end(e, false));
   btn.addEventListener("pointercancel", (e) => end(e, true));
@@ -1323,7 +1325,7 @@ function friendForm(kind, gid0 = ui.fg, into = null) {
 }
 // 扇形選單放手在「某人付」＋分類：記成「我欠某人」，金額打完就好
 function friendQuick(p, cat) {
-  const st = { expr: "", sub: "", note: "", lines: [] };
+  const st = { expr: "", sub: C.mealByTime(catOf("out", cat)?.subs || []), note: "", lines: [] };
   openSheet((el, s) => {
     const subs = catOf("out", cat)?.subs || [];
     const draw = () => {
