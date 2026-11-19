@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.2";
+const VERSION = "1.6.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -937,7 +937,7 @@ function renderStats() {
     ${pays.length > 1 || (pays.length === 1 && pays[0].key) ? `<div class="sec-h"><span>付款方式（點一下看是哪幾筆）</span></div>${pays.map((p) => `<button class="stat" data-sd="${sd({ pay: p.key })}"><span class="nm">${esc(payName(p.key))}</span><span class="track"><i style="width:${((p.amt / pm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(p.amt)}<small>${p.key === "@fr" ? "朋友先付的那份" : Math.round(p.share * 100) + "%"}</small></span></button>`).join("")}
       ${noPay ? `<p class="small muted" style="margin:6px 0 0">「沒寫」是沒填付款方式的，點進去可以一筆一筆補上。</p>` : ""}` : ""}
     ${spent.length ? `<div class="sec-h"><span>每天</span><span>平均一天 ${C.money(Math.round(t[type] / passed))}</span></div>
-      <div class="days" style="--n:${days.length}">${days.map((d) => `<button class="d${d.amt === dm ? " top" : ""}${d.date === today0 ? " now" : ""}" data-sday="${d.date}"${d.amt ? "" : " disabled"} aria-label="${Number(d.date.slice(5, 7))}/${Number(d.date.slice(8))} ${C.money(d.amt)}"><i style="height:${((d.amt / dm) * 100).toFixed(1)}%"></i>${d.amt === dm ? `<span>${C.money(d.amt)}</span>` : ""}</button>`).join("")}</div>
+      <div class="days" style="--n:${days.length}">${days.map((d) => `<button class="d${d.amt === dm ? " max" : ""}${d.date === today0 ? " now" : ""}" data-sday="${d.date}"${d.amt ? "" : " disabled"} aria-label="${Number(d.date.slice(5, 7))}/${Number(d.date.slice(8))} ${C.money(d.amt)}"><i style="height:${((d.amt / dm) * 100).toFixed(1)}%"></i>${d.amt === dm ? `<span>${C.money(d.amt)}</span>` : ""}</button>`).join("")}</div>
       <div class="days-x" style="--n:${days.length}">${days.map((d) => { const n = Number(d.date.slice(8)); return `<span>${n === 1 || n % 5 === 0 ? (n === 1 ? `${Number(d.date.slice(5, 7))}/1` : n) : ""}</span>`; }).join("")}</div>` : ""}
     ${shops.length ? `<div class="sec-h"><span>店家排行（從明細）</span></div>${shops.map((x) => `<button class="stat" data-sd="${sd({ shop: x.name })}"><span class="nm">${esc(x.name)}</span><span class="track"><i style="width:${((x.amt / shm) * 100).toFixed(1)}%"></i></span><span class="v">${C.money(x.amt)}<small>${x.count} 次</small></span></button>`).join("")}` : ""}
     <div class="sec-h"><span>近 6 期${type === "out" ? "支出" : "收入"}（點一下切過去）</span></div>

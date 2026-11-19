@@ -512,7 +512,7 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 .days { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; align-items: end; height: 110px; padding-top: 18px; border-bottom: 1px solid var(--line); }
 .days .d { position: relative; height: 100%; padding: 0; border: 0; background: none; display: flex; align-items: flex-end; justify-content: center; }
 .days .d i { display: block; width: 100%; min-height: 0; background: color-mix(in srgb, var(--accent) 40%, var(--surface-2)); border-radius: 2px 2px 0 0; }
-.days .d.top i, .days .d.now i { background: var(--accent); }
+.days .d.max i, .days .d.now i { background: var(--accent); }
 .days .d span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
 .days .d:first-child span { left: 0; transform: none; }
 .days .d:last-child span, .days .d:nth-last-child(-n+3) span { left: auto; right: 0; transform: none; }
