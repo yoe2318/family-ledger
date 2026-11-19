@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.3";
+const VERSION = "1.6.4";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -2076,11 +2076,22 @@ function pillTo(pos, drag = false) {
   pill.classList.toggle("drag", drag);
   pill.style.setProperty("--pos", pos);
 }
+// 首頁以外的頁面：畫好之後，每遇到一個區塊標題（.sec-h）就開一張新卡片，標題和下面的內容放同一張
+// 沒放背景圖時 .card 沒有任何樣式（看起來跟沒分組一樣）；有背景圖時一張卡＝一塊圓角毛玻璃
+function groupCards(root) {
+  const kids = [...root.children].filter((x) => !x.matches(".top, .sheet-back"));
+  let card = null;
+  for (const k of kids) {
+    if (!card || k.matches(".sec-h")) { card = document.createElement("section"); card.className = "card"; k.before(card); }
+    card.append(k);
+  }
+}
 function render() {
   const html = ui.tab === "stats" ? renderStats() : ui.tab === "cal" ? renderCal() : ui.tab === "more" ? renderMore() : renderHome();
   main.innerHTML = html;
   main.classList.toggle("swipe-x", ui.tab === "cal");
   main.classList.toggle("home", ui.tab === "home" && ui.search === null);
+  if (!main.classList.contains("home")) groupCards(main);
   nav.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === ui.tab));
   const col = TAB_COL[ui.tab];
   if (pillAt !== null && col !== pillAt) { pill.classList.remove("moving"); void pill.offsetWidth; pill.classList.add("moving"); setTimeout(() => pill.classList.remove("moving"), 400); }
