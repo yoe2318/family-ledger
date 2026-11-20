@@ -335,5 +335,11 @@ eq("數量：菜單記一份的價錢", C.findShop(C.shopIndex([{ id: "q", type:
   eq("哪一餐：有宵夜細項就用（23 點起）、半夜沒有就不猜", [C.mealByTime([...S, "宵夜"], at(22)), C.mealByTime([...S, "宵夜"], at(23)), C.mealByTime([...S, "宵夜"], at(1)), C.mealByTime(S, at(1))], ["晚餐", "宵夜", "宵夜", ""]);
   eq("哪一餐：沒有這些細項的分類不猜", [C.mealByTime(["捷運公車", "加油"], at(8)), C.mealByTime([], at(8)), C.mealByTime(["早餐", "晚餐"], at(15))], ["", "", ""]);
 }
+// Google 地圖查到的地址、分店名
+eq("地址：拿掉台灣", [C.cleanAddr("621005台灣嘉義縣民雄鄉裕農路181號"), C.cleanAddr("110臺灣臺北市信義區信義路五段7號"), C.cleanAddr("台灣台北市中山區")], ["621005嘉義縣民雄鄉裕農路181號", "110臺北市信義區信義路五段7號", "台北市中山區"]);
+eq("分店名：地址＋店名 → 只留分店", C.branchFromPlace("621005嘉義縣民雄鄉裕農路181號麥味登 民雄中正店", "麥味登"), "民雄中正店");
+eq("分店名：店名＋分店（沒有地址）", [C.branchFromPlace("八方雲集 中山店", "八方雲集"), C.branchFromPlace("八方雲集(中山店)", "八方雲集"), C.branchFromPlace("麥當勞-台北站前店", "麥當勞")], ["中山店", "中山店", "台北站前店"]);
+eq("分店名：判斷不出來就空著", [C.branchFromPlace("621005嘉義縣民雄鄉裕農路181號", "麥味登"), C.branchFromPlace("某某早餐店", "麥味登"), C.branchFromPlace("麥味登", "麥味登"), C.branchFromPlace("麥味登 嘉義縣民雄鄉中正路1號", "麥味登"), C.branchFromPlace("", "麥味登")], ["", "", "", "", ""]);
+eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義路五段7號5樓鼎泰豐 101店", "鼎泰豐"), "101店");
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

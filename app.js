@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.0";
+const VERSION = "1.7.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1531,8 +1531,8 @@ function branchForm(s, name, idx) {
       const r = await mapLookup(url);
       st.busy = false;
       if (r?.ok && (r.addr || r.name)) {
-        if (r.addr) st.addr = r.addr;
-        if (r.name && !st.name) st.name = r.name.replace(name, "").trim() || "";
+        if (r.addr) st.addr = C.cleanAddr(r.addr);
+        if (r.name && !st.name) st.name = C.branchFromPlace(r.name, name);    // 判斷不出分店名就留空
         st.msg = r.addr ? "找到了，地址已經填好（可以再改）。" : "只找到店名，地址請自己打。";
       } else st.msg = `查不到地址（${r?.err || "不知道為什麼"}），請自己打；網址會照樣存起來。`;
       draw();

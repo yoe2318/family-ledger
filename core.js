@@ -878,3 +878,19 @@ export function mealByTime(subs, when = new Date()) {
   for (const [t, n] of MEAL_TIMES) if (m >= t) name = n;
   return subs.includes(name) ? name : "";
 }
+
+// ---------------------------------------------------------------- Google 地圖查到的地址、分店名整理
+// 地址：拿掉郵遞區號後面的「台灣／臺灣」
+export const cleanAddr = (a) => String(a || "").trim().replace(/^(\d{3,6})?\s*(台灣|臺灣)\s*/, "$1");
+const looksAddr = (s) => /[縣市區鄉鎮].*[路街道巷弄段號]|\d+\s*號/.test(s);
+// 分店名：Google 給的名稱常是「地址＋店名」（621005嘉義縣…181號麥味登 民雄中正店）→ 先切掉前面的地址；
+// 名稱裡有這家店的店名才把剩下的當分店名（民雄中正店），判斷不出來就回空字串，不硬填
+export function branchFromPlace(place, shop) {
+  let s = String(place || "").trim();
+  const m = /^(\d{3,6})?\s*(台灣|臺灣)?\s*\S*?[縣市]\S*?(號|樓)(之\d+)?(\d+\s*樓)?\s*/.exec(s);
+  if (m) s = s.slice(m[0].length).trim();
+  shop = String(shop || "").trim();
+  if (!s || !shop || !s.includes(shop)) return "";
+  const rest = s.replace(shop, "").replace(/^[\s\-－–|｜/（(・·]+|[\s)）]+$/g, "").trim();
+  return rest && !looksAddr(rest) ? rest.slice(0, 20) : "";
+}
