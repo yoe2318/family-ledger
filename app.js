@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.6";
+const VERSION = "1.7.7";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1408,24 +1408,34 @@ function pgShops() {
     <div id="shop-list">${shopListHTML()}</div>`;
 }
 // 打店名（＋地區）請 Apps Script 用 Google 的地圖服務找地址，回傳幾個讓使用者選
-async function mapSearch(q) {
+async function mapSearch(q, pos = null) {
   const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 15000);
   try {
-    const r = await fetch(C.FRIEND_API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ op: "search", q }), signal: ctl.signal });
+    const r = await fetch(C.FRIEND_API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ op: "search", q, ...(pos ? { lat: pos.lat, lng: pos.lng } : {}) }), signal: ctl.signal });
     return await r.json();
   } catch { return { ok: false, err: "連不上（沒網路，或查太久）" }; } finally { clearTimeout(tm); }
 }
+// 手機位置（找附近的店用）：第一次會問要不要給位置；10 分鐘內用同一個；拿不到就回 null（照店名找）
+let posCache = null;
+function getPos() {
+  if (posCache && Date.now() - posCache.t < 600000) return Promise.resolve(posCache);
+  if (!navigator.geolocation) return Promise.resolve(null);
+  return new Promise((ok) => navigator.geolocation.getCurrentPosition(
+    (p) => ok((posCache = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() })),
+    () => ok(null), { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 }));
+}
 const placeUrl = (name, addr) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([name, addr].filter(Boolean).join(" "))}`;
 // 找到的地址：每個可以先「在地圖上看」確認，再「選這個」
-const findHTML = (st, areaId) => `<div class="find-row"><input id="${areaId}" value="${esc(st.area || "")}" placeholder="地區（選填），例如：民雄、中山區" aria-label="地區"><button class="btn" data-find${st.finding ? " disabled" : ""}>${ico("search")}${st.finding ? "找地址中…" : "用店名找地址"}</button></div>
-  ${st.cands?.length ? `<div class="cands"><p class="small muted" style="margin:0 0 4px">Google 找到這些，不一定對，先點「地圖」看一下再選：</p>${st.cands.map((c, i) => `<div class="cand"><span>${esc(C.cleanAddr(c.addr))}</span>${c.lat != null ? `<a class="btn text" href="https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a>` : ""}<button class="btn small primary" data-cpick="${i}">選這個</button></div>`).join("")}</div>` : ""}`;
+const findHTML = (st, areaId) => `<div class="find-row"><input id="${areaId}" value="${esc(st.area || "")}" placeholder="地區（選填），例如：民雄、中山區" aria-label="地區"><button class="btn" data-find${st.finding ? " disabled" : ""}>${ico("search")}${st.finding ? "找地址中…" : st.addr ? "重新找" : "用店名找地址"}</button></div>
+  ${st.cands?.length ? `<div class="cands"><p class="small muted" style="margin:0 0 4px">Google 找到這些，不一定對，先點「地圖」看一下再選：</p>${st.cands.map((c, i) => `<div class="cand"><span>${esc(C.cleanAddr(c.addr))}${c.km != null ? `<small class="km">約 ${c.km} 公里</small>` : ""}</span>${c.lat != null ? `<a class="btn text" href="https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a>` : ""}<button class="btn small primary" data-cpick="${i}">選這個</button></div>`).join("")}</div>` : ""}`;
 async function runFind(st, q, draw) {
   q = q.replace(/\s+/g, " ").trim();
   if (!q) return toast("先打店名");
-  st.finding = true; st.cands = []; st.msg = ""; draw();
-  const r = await mapSearch(q);
+  st.finding = true; st.cands = []; st.msg = "找附近的…"; draw();
+  const pos = await getPos();
+  const r = await mapSearch(q, pos);
   st.finding = false;
-  if (r?.ok && r.results?.length) { st.cands = r.results; st.msg = `找到 ${r.results.length} 個，選一個（都不對就再加地區找一次）。`; }
+  if (r?.ok && r.results?.length) { st.cands = r.results; st.msg = `找到 ${r.results.length} 個${pos ? "（照離你的距離排）" : "（沒有拿到你的位置，照店名找）"}，選一個；都不對就加地區再找一次。`; }
   else st.msg = r?.err || "找不到";
   draw();
 }
@@ -1439,7 +1449,8 @@ function newShop() {
         <div class="field stack"><label for="n-url">Google 地圖網址（選填）</label><input id="n-url" value="${esc(st.url)}" placeholder="貼上分享的網址，就會自動填店名和地址" inputmode="url" autocomplete="off"></div>
         <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" style="margin:6px 0 10px;line-height:1.5">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」貼到這裡；也可以只打店名。")}</p>
         <div class="field"><label for="n-name">店名</label><input id="n-name" value="${esc(st.name)}" maxlength="20" placeholder="例如：麥味登"></div>
-        ${st.addr ? `<div class="field"><span class="lab">地址</span><span>${esc(st.addr)}</span></div>` : findHTML(st, "n-area")}
+        ${st.addr ? `<div class="field"><span class="lab">地址</span><span>${esc(st.addr)}</span></div>` : ""}
+        ${findHTML(st, "n-area")}
         <div class="row-btns"><button class="btn grow" data-close>取消</button><button class="btn primary grow" data-nsave${st.busy ? " disabled" : ""}>新增</button></div>`;
     };
     const look = async () => {
@@ -1471,7 +1482,8 @@ function newShop() {
       if (b.dataset.find !== undefined) return runFind(st, `${st.name} ${st.area || ""}`, draw);
       if (b.dataset.cpick !== undefined) {
         const c = st.cands[+b.dataset.cpick];
-        st.addr = C.cleanAddr(c.addr); st.url = st.url || placeUrl(st.name.trim(), st.addr); st.lastUrl = st.url; st.cands = []; st.msg = "地址填好了。";
+        const auto = !st.url || st.url === st.autoUrl;   // 網址是上次「找地址」自動填的就跟著換
+        st.addr = C.cleanAddr(c.addr); if (auto) { st.url = st.autoUrl = placeUrl(st.name.trim(), st.addr); st.lastUrl = st.url; } st.cands = []; st.msg = "地址填好了（不對的話按「重新找」）。";
         return draw();
       }
       if (b.dataset.nsave !== undefined) {
@@ -1670,7 +1682,7 @@ function branchForm(s, name, idx) {
       if (d.find !== undefined) return runFind(st, `${name} ${st.name} ${st.area || ""}`, draw);
       if (d.cpick !== undefined) {
         const c = st.cands[+d.cpick];
-        st.addr = C.cleanAddr(c.addr); st.autoAddr = false; if (!st.url) { st.url = placeUrl(name, st.addr); st.lastUrl = st.url; }
+        st.addr = C.cleanAddr(c.addr); st.autoAddr = false; if (!st.url || st.url === st.autoUrl) { st.url = st.autoUrl = placeUrl(name, st.addr); st.lastUrl = st.url; }
         st.cands = []; st.msg = "地址填好了。"; return draw();
       }
       if (d.bsave !== undefined) {

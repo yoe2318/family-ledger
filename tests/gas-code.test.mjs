@@ -139,5 +139,18 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
   r = post({ op: "search", q: "沒有這家" }); ok(!r.ok && r.err.includes("找不到"), "找不到");
 }
 
+// 10. 找地址：有手機位置先找附近、照距離排
+{
+  const calls = [];
+  ctx.Maps = { newGeocoder: () => { const g = { b: null, setLanguage() { return g; }, setRegion() { return g; }, setBounds(...a) { g.b = a; return g; },
+    geocode(q) { calls.push(g.b ? "near" : "all"); return { results: g.b ? [{ formatted_address: "近的店", geometry: { location: { lat: 23.56, lng: 120.43 } } }] : [{ formatted_address: "遠的店", geometry: { location: { lat: 25.03, lng: 121.56 } } }, { formatted_address: "近的店", geometry: { location: { lat: 23.56, lng: 120.43 } } }] }; } }; return g; } };
+  const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
+  let r = post({ op: "search", q: "麥當勞", lat: 23.55, lng: 120.43 });
+  ok(r.ok && r.results.map((x) => x.addr).join() === "近的店,遠的店" && r.results[0].km < 2 && r.results[1].km > 100 && calls.join() === "near,all", "有位置：附近的排前面、有距離", JSON.stringify(r));
+  calls.length = 0; r = post({ op: "search", q: "麥當勞" });
+  ok(r.ok && calls.join() === "all" && r.results[0].km === undefined, "沒位置：照舊", JSON.stringify(r));
+  ok(Math.abs(ctx.LG.distKm(25.0339, 121.5645, 23.5577, 120.4698) - 196) < 5, "距離：台北101 到民雄大約 196 公里");
+}
+
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

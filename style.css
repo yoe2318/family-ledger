@@ -556,3 +556,4 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 /* 店家清單：類別按鈕、分組標題 */
 .shop-tags { flex-wrap: wrap; padding: 8px 0 4px; }
 .shop-sec { margin-top: 16px; }
+.cand .km { display: block; color: var(--muted); font-size: 12px; }

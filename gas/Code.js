@@ -29,7 +29,7 @@ function doPost(e) {
     return ContentService.createTextOutput("ok");
   }
   if (body.op === "map") return json_(mapLookup_(body.url));        // 記帳 App 的店家地址：貼 Google 地圖網址查地址（不用連動碼）
-  if (body.op === "search") return json_(mapSearch_(body.q));       // 記帳 App：打店名（＋地區）找地址，回傳幾個讓使用者選
+  if (body.op === "search") return json_(mapSearch_(body.q, body.lat, body.lng));   // 記帳 App：打店名（＋地區）找地址，有手機位置就先找附近的
   return json_(withLock_(function () { return api_(body); }));   // 記帳 App 來的
 }
 function doGet() { return json_({ ok: true, app: "family-ledger friends" }); }
@@ -363,17 +363,28 @@ function mapLookup_(url) {
 }
 
 // 打店名找地址：Google 的地圖服務查，最多回 5 個（同一個地址只留一個）
-function mapSearch_(q) {
+// 有手機位置（lat、lng）：先在附近（約 15 公里內）找，再找全台；結果照距離排、附上距離
+function mapSearch_(q, lat, lng) {
   q = String(q || "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!q) return { ok: false, err: "沒有打店名" };
+  lat = Number(lat); lng = Number(lng);
+  var near = isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat || lng);
   var out = [];
-  try {
-    var g = Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").geocode(q);
+  var add = function (g) {
     (g && g.results || []).forEach(function (x) {
       var a = x.formatted_address || "", loc = x.geometry && x.geometry.location;
-      if (a && out.length < 5 && !out.some(function (y) { return y.addr === a; })) out.push({ addr: a, lat: loc ? loc.lat : null, lng: loc ? loc.lng : null });
+      if (a && !out.some(function (y) { return y.addr === a; })) out.push({ addr: a, lat: loc ? loc.lat : null, lng: loc ? loc.lng : null });
     });
+  };
+  try {
+    if (near) add(Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").setBounds(lat - 0.15, lng - 0.15, lat + 0.15, lng + 0.15).geocode(q));
+    add(Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").geocode(q));
   } catch (err) { console.error(err && err.stack || err); }
+  if (near) {
+    out.forEach(function (x) { if (x.lat != null) x.km = Math.round(LG.distKm(lat, lng, x.lat, x.lng) * 10) / 10; });
+    out.sort(function (a, b) { return (a.km == null ? 1e9 : a.km) - (b.km == null ? 1e9 : b.km); });
+  }
+  out = out.slice(0, 5);
   return out.length ? { ok: true, results: out } : { ok: false, err: "找不到，試試看加上地區（例如：民雄、中山區）" };
 }
 

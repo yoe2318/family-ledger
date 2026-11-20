@@ -217,7 +217,14 @@ var LG = (function () {
     return out;
   }
 
-  return { isMapHost: isMapHost, parseMapUrl: parseMapUrl, parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
+  // 兩個座標之間的距離（公里）
+  function distKm(a1, o1, a2, o2) {
+    var R = 6371, r = Math.PI / 180, da = (a2 - a1) * r, dob = (o2 - o1) * r;
+    var h = Math.sin(da / 2) * Math.sin(da / 2) + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dob / 2) * Math.sin(dob / 2);
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  return { distKm: distKm, isMapHost: isMapHost, parseMapUrl: parseMapUrl, parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
     migrateLegacy: migrateLegacy, buildEntry: buildEntry, describe: describe, amountOf: amountOf, HELP: HELP };
 })();
 if (typeof module !== "undefined") module.exports = LG;
