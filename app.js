@@ -1526,19 +1526,31 @@ function branchForm(s, name, idx) {
     };
     const look = async (force = false) => {
       const url = st.url.trim();
-      if (!url || st.busy || (!force && (st.addr || url === st.lastUrl))) return;
+      // 地址是自己打的就不蓋掉（按「從網址查地址」才會蓋）；是上一個網址查來的，換網址就重查
+      if (!url || st.busy || (!force && ((st.addr && !st.autoAddr) || url === st.lastUrl))) return;
       st.busy = true; st.lastUrl = url; st.msg = "查地址中…"; draw();
       const r = await mapLookup(url);
       st.busy = false;
       if (r?.ok && (r.addr || r.name)) {
-        if (r.addr) st.addr = C.cleanAddr(r.addr);
-        if (r.name && !st.name) st.name = C.branchFromPlace(r.name, name);    // 判斷不出分店名就留空
+        if (r.addr) { st.addr = C.cleanAddr(r.addr); st.autoAddr = true; }
+        if (r.name && (!st.name || st.autoName)) { st.name = C.branchFromPlace(r.name, name); st.autoName = true; }   // 判斷不出分店名就留空
         st.msg = r.addr ? "找到了，地址已經填好（可以再改）。" : "只找到店名，地址請自己打。";
       } else st.msg = `查不到地址（${r?.err || "不知道為什麼"}），請自己打；網址會照樣存起來。`;
       draw();
     };
     draw();
-    el.addEventListener("input", (e) => { const k = { "b-url": "url", "b-name": "name", "b-addr": "addr" }[e.target.id]; if (k) st[k] = e.target.value; });
+    // 網址格一出現完整的 Google 地圖網址（貼上、鍵盤的剪貼簿建議都算）就自動查，不用等離開這一格
+    let lookT = 0;
+    el.addEventListener("input", (e) => {
+      const k = { "b-url": "url", "b-name": "name", "b-addr": "addr" }[e.target.id];
+      if (!k) return;
+      st[k] = e.target.value;
+      if (k === "addr") st.autoAddr = false;
+      if (k === "name") st.autoName = false;
+      if (k !== "url") return;
+      clearTimeout(lookT);
+      if (/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+\/maps)\/?\S*$/i.test(st.url.trim())) lookT = setTimeout(() => { draw(); look(); }, 400);
+    });
     el.addEventListener("change", (e) => { if (e.target.id === "b-url") { draw(); look(); } });
     el.addEventListener("paste", (e) => { if (e.target.id === "b-url") setTimeout(() => { st.url = e.target.value; draw(); look(); }, 0); });
     el.addEventListener("click", (e) => {
