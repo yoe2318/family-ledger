@@ -356,6 +356,7 @@ eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義
   eq("刪掉學來的店：藏起來、紀錄不動", [C.shopIndex(d1.items, d1.shops).map((s) => s.name).sort(), d1.items.length], [["手搖", "麥味登"], 2]);
   const d2 = { ...d1, items: [...d1.items, it("全家", 200)] };
   eq("刪掉之後又記到這家：再出現", C.shopIndex(d2.items, d2.shops).some((s) => s.name === "全家"), true);
+  eq("刪掉之後再新增同名的店：會出現", C.shopIndex(d1.items, C.setShop(d1, "全家", {}).shops).some((s) => s.name === "全家"), true);
   eq("刪掉自己加的店（沒記過）：整個不見", C.removeShop(d0, "手搖").shops.map((s) => s.name), ["麥味登"]);
 }
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);

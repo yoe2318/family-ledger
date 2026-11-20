@@ -819,6 +819,7 @@ export function setShop(data, name, patch) {
   const shops = data.shops || [], cur = shops.find((s) => s.name === name) || { name, menu: [], hide: [], photos: [], branches: [] };
   const next = { ...cur, ...patch };
   if (patch.cat === "") { delete next.cat; delete next.sub; }
+  delete next.hidden; delete next.hiddenAt;          // 自己新增、改這家店＝要它：之前刪掉（藏起來）的就再出現
   return { ...data, shops: cleanShops([...shops.filter((s) => s.name !== name), next]) };
 }
 export const delShop = (data, name) => ({ ...data, shops: (data.shops || []).filter((s) => s.name !== name) });

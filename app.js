@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.4";
+const VERSION = "1.7.5";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
