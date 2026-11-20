@@ -127,5 +127,17 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
   ok(r.ok, "查地址不需要連動碼");
 }
 
+// 9. 打店名找地址：最多 5 個、同地址只留一個、空的擋掉
+{
+  const seen = [];
+  ctx.Maps = { newGeocoder: () => ({ setLanguage() { return this; }, setRegion() { return this; },
+    geocode(q) { seen.push(q); return { results: q.includes("沒有") ? [] : [1, 2, 2, 3, 4, 5, 6].map((i) => ({ formatted_address: "地址" + i, geometry: { location: { lat: 25 + i / 100, lng: 121 } } })) }; } }) };
+  const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
+  let r = post({ op: "search", q: "  麥味登   民雄  " });
+  ok(r.ok && r.results.length === 5 && r.results.map((x) => x.addr).join() === "地址1,地址2,地址3,地址4,地址5" && seen[0] === "麥味登 民雄", "找地址：最多 5 個、去重複、空白整理", JSON.stringify(r));
+  r = post({ op: "search", q: "" }); ok(!r.ok, "沒打店名");
+  r = post({ op: "search", q: "沒有這家" }); ok(!r.ok && r.err.includes("找不到"), "找不到");
+}
+
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

@@ -254,6 +254,7 @@ function doPost(e) {
     return ContentService.createTextOutput("ok");
   }
   if (body.op === "map") return json_(mapLookup_(body.url));        // 記帳 App 的店家地址：貼 Google 地圖網址查地址（不用連動碼）
+  if (body.op === "search") return json_(mapSearch_(body.q));       // 記帳 App：打店名（＋地區）找地址，回傳幾個讓使用者選
   return json_(withLock_(function () { return api_(body); }));   // 記帳 App 來的
 }
 function doGet() { return json_({ ok: true, app: "family-ledger friends" }); }
@@ -584,6 +585,21 @@ function mapLookup_(url) {
   } catch (err) { console.error(err && err.stack || err); }
   if (!addr && !info.name) return { ok: false, err: "查不到" };
   return { ok: true, name: info.name && info.name !== addr ? info.name : "", addr: addr, lat: lat, lng: lng };
+}
+
+// 打店名找地址：Google 的地圖服務查，最多回 5 個（同一個地址只留一個）
+function mapSearch_(q) {
+  q = String(q || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!q) return { ok: false, err: "沒有打店名" };
+  var out = [];
+  try {
+    var g = Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").geocode(q);
+    (g && g.results || []).forEach(function (x) {
+      var a = x.formatted_address || "", loc = x.geometry && x.geometry.location;
+      if (a && out.length < 5 && !out.some(function (y) { return y.addr === a; })) out.push({ addr: a, lat: loc ? loc.lat : null, lng: loc ? loc.lng : null });
+    });
+  } catch (err) { console.error(err && err.stack || err); }
+  return out.length ? { ok: true, results: out } : { ok: false, err: "找不到，試試看加上地區（例如：民雄、中山區）" };
 }
 
 // ------------------------------------------------------------------ 在 Apps Script 編輯器裡手動執行的

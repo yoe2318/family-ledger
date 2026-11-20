@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.2";
+const VERSION = "1.7.4";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1390,15 +1390,44 @@ async function mapLookup(url) {
   } catch { return { ok: false, err: "連不上（沒網路，或查太久）" }; } finally { clearTimeout(tm); }
 }
 function shopListHTML() {
-  const q = (ui.shopQ || "").trim(), list = shopIdx().sort((a, b) => b.count - a.count || b.lastT - a.lastT || a.name.localeCompare(b.name)).filter((s) => !q || s.name.includes(q) || s.branches.some((b) => (b.addr + b.name).includes(q)));
-  return list.map((s) => `<button class="menu-row" data-shop="${esc(s.name)}">${ico("store")}<span class="t">${esc(s.name)}<small>${esc([s.count ? `去過 ${s.count} 次・最近 ${mmdd(s.lastT)}` : "還沒記過", s.cat ? s.cat + (s.sub ? "・" + s.sub : "") : "", s.menu.length ? `菜單 ${s.menu.length} 樣` : "", s.photos.length ? `${s.photos.length} 張菜單照片` : "", s.branches.length ? `${s.branches.length} 個地址` : ""].filter(Boolean).join("・"))}</small></span><span class="chev">${ico("chevron-right")}</span></button>`).join("")
-    || `<div class="empty">${q ? "找不到這家店。" : "還沒有店家。記帳時在「明細」填店家，這裡就會自動出現；也可以先新增，把菜單放進來。"}</div>`;
+  const q = (ui.shopQ || "").trim(), tag = ui.shopTag ?? null, all = shopIdx();
+  const list = all.sort((a, b) => b.count - a.count || b.lastT - a.lastT || a.name.localeCompare(b.name))
+    .filter((s) => (!q || s.name.includes(q) || s.branches.some((b) => (b.addr + b.name).includes(q))) && (tag === null || s.tag === tag));
+  const used = C.shopTags(data.shops || []).filter((t) => all.some((s) => s.tag === t));
+  const chips = all.length ? `<div class="pick-row shop-tags"><button class="chip${tag === null ? " on" : ""}" data-stag="">全部 ${all.length}</button>${used.map((t) => `<button class="chip${tag === t ? " on" : ""}" data-stag="${esc(t)}">${esc(t)} ${all.filter((s) => s.tag === t).length}</button>`).join("")}${all.some((s) => !s.tag) ? `<button class="chip${tag === "" ? " on" : ""}" data-stag="__none">未分類 ${all.filter((s) => !s.tag).length}</button>` : ""}</div>` : "";
+  const row = (s) => `<button class="menu-row" data-shop="${esc(s.name)}">${ico("store")}<span class="t">${esc(s.name)}<small>${esc([s.count ? `去過 ${s.count} 次・最近 ${mmdd(s.lastT)}` : "還沒記過", s.cat ? s.cat + (s.sub ? "・" + s.sub : "") : "", s.menu.length ? `菜單 ${s.menu.length} 樣` : "", s.photos.length ? `${s.photos.length} 張菜單照片` : "", s.branches.length ? `${s.branches.length} 個地址` : ""].filter(Boolean).join("・"))}</small></span><span class="chev">${ico("chevron-right")}</span></button>`;
+  if (!list.length) return chips + `<div class="empty">${q || tag !== null ? "找不到這家店。" : "還沒有店家。記帳時在「明細」填店家，這裡就會自動出現；也可以先新增，把菜單放進來。"}</div>`;
+  if (tag !== null || q) return chips + list.map(row).join("");
+  const groups = [...used, ""].map((t) => [t, list.filter((s) => s.tag === t)]).filter(([, l]) => l.length);   // 「全部」：照類別分組
+  return chips + groups.map(([t, l]) => (groups.length > 1 ? `<div class="sec-h shop-sec"><span>${esc(t || "未分類")}</span><span>${l.length} 家</span></div>` : "") + l.map(row).join("")).join("");
 }
 function pgShops() {
   return `${subHead("店家與菜單")}
     <p class="small muted">記帳時在明細填過的店家、點過的東西都會自動記在這裡；下次選這家，會列出點過的品項和上次的價錢。也可以先把菜單、菜單照片、分店地址放進來。</p>
     <div class="row-btns" style="margin-top:8px"><input id="shop-q" type="search" value="${esc(ui.shopQ || "")}" placeholder="找店家或地址" aria-label="找店家或地址" style="flex:1;min-width:0"><button class="btn" data-shopnew>${ico("plus")}新增店家</button></div>
     <div id="shop-list">${shopListHTML()}</div>`;
+}
+// 打店名（＋地區）請 Apps Script 用 Google 的地圖服務找地址，回傳幾個讓使用者選
+async function mapSearch(q) {
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(C.FRIEND_API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ op: "search", q }), signal: ctl.signal });
+    return await r.json();
+  } catch { return { ok: false, err: "連不上（沒網路，或查太久）" }; } finally { clearTimeout(tm); }
+}
+const placeUrl = (name, addr) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([name, addr].filter(Boolean).join(" "))}`;
+// 找到的地址：每個可以先「在地圖上看」確認，再「選這個」
+const findHTML = (st, areaId) => `<div class="find-row"><input id="${areaId}" value="${esc(st.area || "")}" placeholder="地區（選填），例如：民雄、中山區" aria-label="地區"><button class="btn" data-find${st.finding ? " disabled" : ""}>${ico("search")}${st.finding ? "找地址中…" : "用店名找地址"}</button></div>
+  ${st.cands?.length ? `<div class="cands"><p class="small muted" style="margin:0 0 4px">Google 找到這些，不一定對，先點「地圖」看一下再選：</p>${st.cands.map((c, i) => `<div class="cand"><span>${esc(C.cleanAddr(c.addr))}</span>${c.lat != null ? `<a class="btn text" href="https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a>` : ""}<button class="btn small primary" data-cpick="${i}">選這個</button></div>`).join("")}</div>` : ""}`;
+async function runFind(st, q, draw) {
+  q = q.replace(/\s+/g, " ").trim();
+  if (!q) return toast("先打店名");
+  st.finding = true; st.cands = []; st.msg = ""; draw();
+  const r = await mapSearch(q);
+  st.finding = false;
+  if (r?.ok && r.results?.length) { st.cands = r.results; st.msg = `找到 ${r.results.length} 個，選一個（都不對就再加地區找一次）。`; }
+  else st.msg = r?.err || "找不到";
+  draw();
 }
 // 新增店家：打店名，或貼 Google 地圖網址自動填店名和地址（地址存成這家的第一個地址）
 const MAP_URL_RE = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+\/maps)\/?\S*$/i;
@@ -1410,7 +1439,7 @@ function newShop() {
         <div class="field stack"><label for="n-url">Google 地圖網址（選填）</label><input id="n-url" value="${esc(st.url)}" placeholder="貼上分享的網址，就會自動填店名和地址" inputmode="url" autocomplete="off"></div>
         <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" style="margin:6px 0 10px;line-height:1.5">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」貼到這裡；也可以只打店名。")}</p>
         <div class="field"><label for="n-name">店名</label><input id="n-name" value="${esc(st.name)}" maxlength="20" placeholder="例如：麥味登"></div>
-        ${st.addr ? `<div class="field"><span class="lab">地址</span><span>${esc(st.addr)}</span></div>` : ""}
+        ${st.addr ? `<div class="field"><span class="lab">地址</span><span>${esc(st.addr)}</span></div>` : findHTML(st, "n-area")}
         <div class="row-btns"><button class="btn grow" data-close>取消</button><button class="btn primary grow" data-nsave${st.busy ? " disabled" : ""}>新增</button></div>`;
     };
     const look = async () => {
@@ -1432,12 +1461,19 @@ function newShop() {
     el.querySelector("#n-name")?.focus();
     el.addEventListener("input", (e) => {
       if (e.target.id === "n-name") { st.name = e.target.value; st.autoName = false; }
+      if (e.target.id === "n-area") st.area = e.target.value;
       if (e.target.id === "n-url") { st.url = e.target.value; clearTimeout(t); if (MAP_URL_RE.test(st.url.trim())) t = setTimeout(look, 400); }
     });
     el.addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
       if (b.dataset.close !== undefined) return s.close();
+      if (b.dataset.find !== undefined) return runFind(st, `${st.name} ${st.area || ""}`, draw);
+      if (b.dataset.cpick !== undefined) {
+        const c = st.cands[+b.dataset.cpick];
+        st.addr = C.cleanAddr(c.addr); st.url = st.url || placeUrl(st.name.trim(), st.addr); st.lastUrl = st.url; st.cands = []; st.msg = "地址填好了。";
+        return draw();
+      }
       if (b.dataset.nsave !== undefined) {
         const v = st.name.trim(), url = st.url.trim();
         if (!v) return toast("先打店名，或貼 Google 地圖網址");
@@ -1464,6 +1500,7 @@ function shopSheet(name0, into = null) {
       el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>${esc(name)}</h3><button class="btn text" data-srename>${ico("pencil")}改名</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <p class="small muted" style="margin:0 0 8px">${sh.count ? `去過 ${sh.count} 次・最近 ${mmdd(sh.lastT)}` : "還沒在明細裡記過這家"}</p>
         <div class="field"><label for="s-cat">預設分類</label><select id="s-cat"><option value="">自動（照上次${!own?.cat && sh.cat ? "：" + esc(sh.cat + (sh.sub ? "・" + sh.sub : "")) : ""}）</option>${catOpts.map((x) => `<option${x === curCat ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+        <div class="field"><label for="s-tag">店家類別</label><select id="s-tag"><option value="">未分類</option>${C.shopTags(data.shops || []).map((t) => `<option${t === sh.tag ? " selected" : ""}>${esc(t)}</option>`).join("")}<option value="__new">＋新增類別…</option></select></div>
         <div class="sec-h"><span>地址（${sh.branches.length}）</span></div>
         <div class="sm-list">${sh.branches.map((b, i) => `<div class="sm-row br"><span class="t">${b.name ? `<b>${esc(b.name)}</b>` : ""}${esc(b.addr || "（沒有地址）")}${b.url ? `<small>有 Google 地圖連結</small>` : ""}</span>
           <a class="btn text" href="${esc(mapsHref(b))}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a><button class="icon-btn" data-bedit="${i}" aria-label="改這個地址">${ico("pencil")}</button><button class="icon-btn" data-bdel="${i}" aria-label="刪掉這個地址">${ico("x")}</button></div>`).join("") || `<p class="small muted">還沒有地址。有分店的話可以加好幾個。</p>`}</div>
@@ -1476,7 +1513,7 @@ function shopSheet(name0, into = null) {
         ${sh.photos.length ? `<div class="sm-photos">${sh.photos.map((id, i) => `<div class="ph"><button class="ph-img" data-sphoto="${i}" aria-label="看第 ${i + 1} 張">${urls.get(id) ? `<img src="${urls.get(id)}" alt="">` : ""}</button><button class="ph-x" data-sphotodel="${esc(id)}" aria-label="刪掉第 ${i + 1} 張">${ico("x")}</button></div>`).join("")}</div>` : ""}
         ${sh.photos.length < 12 ? `<div class="row-btns" style="margin-top:6px"><label class="btn grow">${ico("image")}${sh.photos.length ? "再加照片" : "拍照／選圖片"}<input type="file" accept="image/*" id="s-file" multiple hidden></label></div>` : ""}
         <p class="small muted">照片只存在這台手機，不會放進備份。一次可以選好幾張，最多 12 張。</p>
-        ${own ? `<div class="row-btns"><button class="btn danger" data-sdel>${ico("trash")}刪除這家店</button></div><p class="small muted">刪除只會拿掉你自己整理的菜單、照片、地址和分類，以前的紀錄不會動。</p>` : ""}`;
+        <div class="row-btns"><button class="btn danger" data-sdel>${ico("trash")}刪除這家店</button></div><p class="small muted">刪除會拿掉這家店的菜單、照片、地址和分類，記帳時也不會再建議它；以前記帳裡的明細不會動。</p>`;
       for (const id of sh.photos) {   // 縮圖：讀過的就留著，沒讀過的讀進來後補上
         if (urls.has(id)) continue;
         try { const b = await BGDB.get(photoKey(name, id)); if (b) { urls.set(id, URL.createObjectURL(b)); const i = sh.photos.indexOf(id), box = el.querySelectorAll(".ph-img")[i]; if (box) box.innerHTML = `<img src="${urls.get(id)}" alt="">`; } } catch { /* 讀不到就空著 */ }
@@ -1487,6 +1524,11 @@ function shopSheet(name0, into = null) {
     draw();
     s.onClose = dropUrls;
     el.addEventListener("change", async (e) => {
+      if (e.target.id === "s-tag") {
+        let v = e.target.value;
+        if (v === "__new") { v = (await ask("新增店家類別", "例如：宵夜、火鍋、咖啡廳", [["no", "取消"], ["ok", "新增", "primary"]], ""))?.trim().slice(0, 12) || ""; if (!v) return draw(); }
+        commit(C.setShop(data, name, { tag: v })); draw(); return;
+      }
       if (e.target.id === "s-cat") {
         const [cat, sub = ""] = e.target.value.split("・");
         commit(C.setShop(data, name, cat ? { cat, sub } : { cat: "" })); draw();
@@ -1549,9 +1591,9 @@ function shopSheet(name0, into = null) {
         if (!b || !(await sure("刪掉這個地址？", [b.name, b.addr].filter(Boolean).join("・"), "刪掉", "danger"))) return;
         list.splice(+d.bdel, 1); commit(C.setShop(data, name, { branches: list })); draw(); return;
       }
-      if (d.sdel !== undefined && (await sure(`刪除「${name}」？`, "只會拿掉你自己整理的菜單、照片、地址和分類，以前的紀錄不會動。", "刪除", "danger"))) {
+      if (d.sdel !== undefined && (await sure(`刪除「${name}」？`, "這家店的菜單、照片、地址會拿掉，記帳時也不會再建議它；以前記帳裡的明細不會動。之後如果又記到這家，它會再出現。", "刪除", "danger"))) {
         try { await BGDB.del(...(ownShop(name)?.photos || []).map((id) => photoKey(name, id))); } catch { /* 沒有也沒關係 */ }
-        commit(C.delShop(data, name)); s.close();
+        commit(C.removeShop(data, name)); s.close(); toast(`刪掉「${name}」了`);
       }
     });
   });
@@ -1568,6 +1610,7 @@ function branchForm(s, name, idx) {
         ${st.url ? `<div class="row-btns" style="margin:0 0 8px"><button class="btn" data-blook${st.busy ? " disabled" : ""}>${ico("search")}${st.busy ? "查地址中…" : "從網址查地址"}</button></div>` : ""}
         <div class="field"><label for="b-name">分店名</label><input id="b-name" value="${esc(st.name)}" maxlength="20" placeholder="選填，例如：中山店"></div>
         <div class="field"><label for="b-addr">地址</label><input id="b-addr" value="${esc(st.addr)}" maxlength="120" placeholder="例如：台北市中山區…"></div>
+        ${findHTML(st, "b-area")}
         <div class="row-btns"><button class="btn grow" data-bback>取消</button><button class="btn primary grow" data-bsave>存起來</button></div>`;
     };
     const look = async (force = false) => {
@@ -1589,6 +1632,7 @@ function branchForm(s, name, idx) {
     // 網址格一出現完整的 Google 地圖網址（貼上、鍵盤的剪貼簿建議都算）就自動查，不用等離開這一格
     let lookT = 0;
     el.addEventListener("input", (e) => {
+      if (e.target.id === "b-area") st.area = e.target.value;
       const k = { "b-url": "url", "b-name": "name", "b-addr": "addr" }[e.target.id];
       if (!k) return;
       st[k] = e.target.value;
@@ -1607,6 +1651,12 @@ function branchForm(s, name, idx) {
       if (d.close !== undefined) return s2.close();
       if (d.bback !== undefined) return shopSheet(name, s2);
       if (d.blook !== undefined) return look(true);
+      if (d.find !== undefined) return runFind(st, `${name} ${st.name} ${st.area || ""}`, draw);
+      if (d.cpick !== undefined) {
+        const c = st.cands[+d.cpick];
+        st.addr = C.cleanAddr(c.addr); st.autoAddr = false; if (!st.url) { st.url = placeUrl(name, st.addr); st.lastUrl = st.url; }
+        st.cands = []; st.msg = "地址填好了。"; return draw();
+      }
       if (d.bsave !== undefined) {
         const url = st.url.trim(), b = { name: st.name.trim(), addr: st.addr.trim(), url: /^https?:\/\//i.test(url) ? url : "" };
         if (!b.addr && !b.url) return toast("至少要有地址或 Google 地圖網址");
@@ -2372,6 +2422,7 @@ async function onClick(e) {
   if (d.frepay !== undefined) return friendForm("pay");
   if (d.fe) return friendEntry(d.fe);
   if (d.shop) return shopSheet(d.shop);
+  if (d.stag !== undefined) { ui.shopTag = d.stag === "" ? null : d.stag === "__none" ? "" : d.stag; const box = $("#shop-list"); if (box) box.innerHTML = shopListHTML(); return; }
   if (d.shopnew !== undefined) return newShop();
   if (d.fcode !== undefined) { const v = await ask("輸入連動碼", "私訊 LINE 記帳機器人「連動碼」，把它回的 8 個字打在這裡（例如 K7P2-9QXA），大小寫都可以。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseCode(v)); return; }
   if (d.fnew !== undefined) return newGroupHelp();

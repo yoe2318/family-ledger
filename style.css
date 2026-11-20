@@ -541,3 +541,18 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 
 /* 標題放上面、輸入框整行寬（標題太長、一行放不下時用） */
 .field.stack { grid-template-columns: minmax(0, 1fr); gap: 6px; border-bottom: 0; padding-bottom: 0; }
+
+/* 打店名找地址 */
+.find-row { display: flex; gap: 8px; margin: 8px 0; }
+.find-row input { flex: 1; min-width: 0; }
+.find-row .btn { white-space: nowrap; }
+.cands { display: grid; gap: 4px; margin: 0 0 8px; }
+.cand { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line-2); }
+.cand span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.cand a.btn { text-decoration: none; white-space: nowrap; }
+.cand a.btn .ico { width: 16px; height: 16px; }
+.cand .btn.small { white-space: nowrap; }
+
+/* 店家清單：類別按鈕、分組標題 */
+.shop-tags { flex-wrap: wrap; padding: 8px 0 4px; }
+.shop-sec { margin-top: 16px; }

@@ -742,6 +742,9 @@ export function cleanShops(raw) {
       if ((x.name || x.addr || x.url) && !cur.branches.some((y) => y.name === x.name && y.addr === x.addr && y.url === x.url)) cur.branches.push(x);
     }
     cur.menu = cur.menu.slice(0, 60); cur.hide = cur.hide.slice(0, 100); cur.photos = cur.photos.slice(0, 12); cur.branches = cur.branches.slice(0, 20);
+    const tag = String(s.tag ?? "").trim().slice(0, 12);
+    if (tag && !cur.tag) cur.tag = tag;
+    if (s.hidden) { cur.hidden = true; cur.hiddenAt = Math.max(cur.hiddenAt || 0, Number(s.hiddenAt) || 0); }
     m.set(name, cur);
   }
   return [...m.values()].slice(0, 300);
@@ -769,7 +772,7 @@ export function shopIndex(items, shops = []) {
   }
   for (const own of shops) {
     const s = get(own.name);
-    s.own = own; s.photos = own.photos || []; s.branches = own.branches || []; s.photo = s.photos.length > 0;
+    s.own = own; s.photos = own.photos || []; s.branches = own.branches || []; s.photo = s.photos.length > 0; s.tag = own.tag || "";
     if (own.cat) { s.cat = own.cat; s.sub = own.sub || ""; }
     for (const x of own.menu) {
       const it = s.menu.get(x.what);
@@ -778,7 +781,18 @@ export function shopIndex(items, shops = []) {
     }
     for (const h of own.hide) { const it = s.menu.get(h); if (it && !own.menu.some((y) => y.what === h)) s.menu.delete(h); }
   }
-  return [...m.values()].map((s) => ({ ...s, menu: [...s.menu.values()].sort((a, b) => b.count - a.count || b.lastT - a.lastT) }));
+  // 刪掉的店家藏起來；刪掉之後又記到這家（比刪掉的時間新）就再出現
+  return [...m.values()].filter((s) => !(s.own?.hidden && !(s.lastT > (s.own.hiddenAt || 0))))
+    .map((s) => ({ ...s, tag: s.tag || "", menu: [...s.menu.values()].sort((a, b) => b.count - a.count || b.lastT - a.lastT) }));
+}
+// 店家類別：預設幾個＋已經用過的
+export const SHOP_TAGS = ["早餐店", "飲料店", "餐廳", "小吃", "超商", "超市"];
+export const shopTags = (shops = []) => [...new Set([...SHOP_TAGS, ...shops.map((s) => s.tag).filter(Boolean)])];
+// 刪掉店家：自己整理的全部清掉；從明細學到的店（以前記過）留一筆「藏起來」，免得馬上又從紀錄冒出來
+export function removeShop(data, name, now = Date.now()) {
+  const learned = (data.items || []).some((x) => (x.lines || []).some((l) => l.shop === name));
+  const rest = (data.shops || []).filter((s) => s.name !== name);
+  return { ...data, shops: learned ? cleanShops([...rest, { name, hidden: true, hiddenAt: now }]) : rest };
 }
 export const findShop = (index, name) => index.find((s) => s.name === String(name ?? "").trim()) || null;
 // 常去的：次數多的在前，一樣多比最近一次
@@ -795,7 +809,7 @@ export function renameShop(data, from, to) {
     const add = a || { menu: [], hide: [], photos: [], branches: [] };
     next = [...next, { ...base, name: to, ...(base.cat ? {} : add.cat ? { cat: add.cat, sub: add.sub || "" } : {}),
       menu: [...base.menu, ...add.menu.filter((x) => !base.menu.some((y) => y.what === x.what))],
-      hide: [...new Set([...(base.hide || []), ...(add.hide || [])])], photos: [...new Set([...(base.photos || []), ...(add.photos || [])])],
+      hide: [...new Set([...(base.hide || []), ...(add.hide || [])])], photos: [...new Set([...(base.photos || []), ...(add.photos || [])])], tag: base.tag || add.tag || "",
       branches: [...(base.branches || []), ...(add.branches || [])] }];
   }
   return { ...data, items, shops: cleanShops(next) };

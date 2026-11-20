@@ -346,5 +346,17 @@ eq("新增店家拆店名：拆不出分店就整個當店名", [C.placeParts("6
   [{ shop: "V pasta義式料理", branch: "" }, { shop: "V pasta 義式料理", branch: "" }, { shop: "台北101", branch: "" }, { shop: "", branch: "" }]);
 eq("分店名：判斷不出來就空著", [C.branchFromPlace("621005嘉義縣民雄鄉裕農路181號", "麥味登"), C.branchFromPlace("某某早餐店", "麥味登"), C.branchFromPlace("麥味登", "麥味登"), C.branchFromPlace("麥味登 嘉義縣民雄鄉中正路1號", "麥味登"), C.branchFromPlace("", "麥味登")], ["", "", "", "", ""]);
 eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義路五段7號5樓鼎泰豐 101店", "鼎泰豐"), "101店");
+// 店家類別、刪掉店家
+{
+  const it = (shop, t) => ({ id: "x" + t, type: "out", amt: 50, cat: "餐飲", date: "2026-11-20", t, lines: [{ shop, what: "a", amt: 50 }] });
+  const d0 = { ...C.emptyData(), items: [it("麥味登", 10), it("全家", 11)], shops: C.cleanShops([{ name: "麥味登", tag: "早餐店" }, { name: "手搖", tag: "飲料店", menu: [{ what: "奶茶", amt: 50 }] }]) };
+  eq("店家類別：讀得到、沒設的是空的", C.shopIndex(d0.items, d0.shops).map((s) => [s.name, s.tag]).sort(), [["全家", ""], ["手搖", "飲料店"], ["麥味登", "早餐店"]]);
+  eq("店家類別清單：預設＋用過的", C.shopTags([{ tag: "宵夜" }, { tag: "早餐店" }]).slice(-1), ["宵夜"]);
+  const d1 = C.removeShop(d0, "全家", 100);
+  eq("刪掉學來的店：藏起來、紀錄不動", [C.shopIndex(d1.items, d1.shops).map((s) => s.name).sort(), d1.items.length], [["手搖", "麥味登"], 2]);
+  const d2 = { ...d1, items: [...d1.items, it("全家", 200)] };
+  eq("刪掉之後又記到這家：再出現", C.shopIndex(d2.items, d2.shops).some((s) => s.name === "全家"), true);
+  eq("刪掉自己加的店（沒記過）：整個不見", C.removeShop(d0, "手搖").shops.map((s) => s.name), ["麥味登"]);
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);
