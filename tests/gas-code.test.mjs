@@ -155,5 +155,35 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
   ok(Math.abs(ctx.LG.distKm(25.0339, 121.5645, 23.5577, 120.4698) - 196) < 5, "距離：台北101 到民雄大約 196 公里");
 }
 
+// 11. Google Places：找店、查電話和營業時間、每天上限、沒金鑰照舊
+{
+  const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
+  const calls = [];
+  ctx.UrlFetchApp = { fetch: (u, o) => { calls.push([u, o]);
+    if (u.endsWith("places:searchText")) { const b = JSON.parse(o.payload); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ places: b.textQuery.includes("沒有") ? [] : [
+      { id: "far1", displayName: { text: "麥當勞 台北店" }, formattedAddress: "台北市中山路1號", location: { latitude: 25.03, longitude: 121.56 } },
+      { id: "near1", displayName: { text: "麥當勞 民雄店" }, formattedAddress: "嘉義縣民雄鄉建國路一段18號", location: { latitude: 23.556, longitude: 120.431 } }].slice(0, b.maxResultCount) }) }; }
+    if (u.includes("/places/")) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ id: "near1", displayName: { text: "麥當勞 民雄店" }, formattedAddress: "嘉義縣民雄鄉建國路一段18號", nationalPhoneNumber: "05 226 1234",
+      regularOpeningHours: { weekdayDescriptions: ["星期一: 休息", "星期二: 06:00 – 14:00"] } }) };
+    return { getResponseCode: () => 404, getContentText: () => "" }; } };
+  T.placesKey = "K"; T.props = {};
+  let r = post({ op: "search", q: "麥當勞", lat: 23.55, lng: 120.43 });
+  ok(r.ok && r.results[0].id === "near1" && r.results[0].name === "麥當勞 民雄店" && r.results[0].km < 2 && r.results[1].km > 100, "Places 找店：近的排前面、有店名和 id", JSON.stringify(r));
+  const sb = JSON.parse(calls[0][1].payload);
+  ok(calls[0][1].headers["X-Goog-Api-Key"] === "K" && !/Phone|Hours/.test(calls[0][1].headers["X-Goog-FieldMask"]) && sb.locationBias.circle.radius === 20000 && sb.languageCode === "zh-TW", "找店只拿便宜的欄位、偏向附近", JSON.stringify(calls[0]));
+  calls.length = 0; r = post({ op: "place", id: "near1" });
+  ok(r.ok && r.phone === "05 226 1234" && r.hours.length === 2 && calls.length === 1 && /nationalPhoneNumber/.test(calls[0][1].headers["X-Goog-FieldMask"]), "有 id：直接查電話和營業時間", JSON.stringify(r));
+  calls.length = 0; r = post({ op: "place", q: "麥當勞 建國路一段18號" });
+  ok(r.ok && r.phone && calls.length === 2 && JSON.parse(calls[0][1].payload).maxResultCount === 1, "沒 id：先找一家再查");
+  r = post({ op: "place", q: "沒有這家" }); ok(!r.ok && r.err.includes("找不到"), "Google 上沒有這家", JSON.stringify(r));
+  r = post({ op: "place", id: "a/../x?key=1" }); ok(calls.at(-1)[0].includes("/places/axkey1?"), "id 裡奇怪的字元拿掉", calls.at(-1)[0]);
+  T.props = { Q_detail: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10) + ":30" };
+  calls.length = 0; r = post({ op: "place", id: "near1" });
+  ok(!r.ok && r.err.includes("次數用完") && calls.length === 0, "查電話：今天 30 次用完就不再查", JSON.stringify(r));
+  T.props = { Q_search: "2000-01-01:150" };
+  r = post({ op: "search", q: "麥當勞" }); ok(r.ok && T.props.Q_search.endsWith(":1"), "換天：次數歸零", JSON.stringify(T.props));
+  T.placesKey = ""; r = post({ op: "place", id: "near1" }); ok(!r.ok && r.err.includes("還沒設定"), "沒金鑰：查電話說還沒設定");
+}
+
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

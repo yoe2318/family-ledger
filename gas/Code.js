@@ -29,7 +29,8 @@ function doPost(e) {
     return ContentService.createTextOutput("ok");
   }
   if (body.op === "map") return json_(mapLookup_(body.url));        // 記帳 App 的店家地址：貼 Google 地圖網址查地址（不用連動碼）
-  if (body.op === "search") return json_(mapSearch_(body.q, body.lat, body.lng));   // 記帳 App：打店名（＋地區）找地址，有手機位置就先找附近的
+  if (body.op === "search") return json_(mapSearch_(body.q, body.lat, body.lng));
+  if (body.op === "place") return json_(placeInfo_(body));          // 記帳 App：查店家的電話和營業時間（Google Places）   // 記帳 App：打店名（＋地區）找地址，有手機位置就先找附近的
   return json_(withLock_(function () { return api_(body); }));   // 記帳 App 來的
 }
 function doGet() { return json_({ ok: true, app: "family-ledger friends" }); }
@@ -362,6 +363,69 @@ function mapLookup_(url) {
   return { ok: true, name: info.name && info.name !== addr ? info.name : "", addr: addr, lat: lat, lng: lng };
 }
 
+// ------------------------------------------------------------------ Google Places（店名找店、電話、營業時間）
+// 金鑰放在指令碼屬性 PLACES_KEY；沒設就用下面的免費地址查詢。每天有上限，不會超過 Google 每月的免費額度：
+//   找店（Text Search Pro，每月免費 5000 次）每天最多 150 次；查電話和營業時間（Place Details Enterprise，每月免費 1000 次）每天最多 30 次。
+var PLACES_MAX = { search: 150, detail: 30 };
+var QUOTA_MSG = { search: "今天找店的次數用完了，明天再找；也可以貼 Google 地圖網址。", detail: "今天查電話和營業時間的次數用完了，明天再查；也可以自己填。" };
+function placesKey_() { return TEST ? (TEST.placesKey || "") : (PropertiesService.getScriptProperties().getProperty("PLACES_KEY") || ""); }
+// 台灣時間的今天；屬性只存一個「日期:次數」，換天自動歸零
+function quota_(kind) {
+  var day = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  var get = TEST ? function (k) { return (TEST.props || {})[k]; } : function (k) { return PropertiesService.getScriptProperties().getProperty(k); };
+  var set = TEST ? function (k, v) { (TEST.props = TEST.props || {})[k] = v; } : function (k, v) { PropertiesService.getScriptProperties().setProperty(k, v); };
+  var cur = String(get("Q_" + kind) || "").split(":"), n = cur[0] === day ? Number(cur[1]) || 0 : 0;
+  if (n >= PLACES_MAX[kind]) return false;
+  set("Q_" + kind, day + ":" + (n + 1));
+  return true;
+}
+function places_(path, body, mask) {
+  var opt = { method: body ? "post" : "get", headers: { "X-Goog-Api-Key": placesKey_(), "X-Goog-FieldMask": mask }, muteHttpExceptions: true };
+  if (body) { opt.contentType = "application/json"; opt.payload = JSON.stringify(body); }
+  var r = UrlFetchApp.fetch("https://places.googleapis.com/v1/" + path, opt);
+  if (r.getResponseCode() >= 300) { console.warn("Places " + r.getResponseCode() + " " + r.getContentText()); return null; }
+  try { return JSON.parse(r.getContentText() || "{}"); } catch (e) { return null; }
+}
+// 找店：只拿 id、店名、地址、座標（Pro 等級）；有位置就偏向附近、照距離排
+function placesSearch_(q, lat, lng, n) {
+  if (!quota_("search")) return { err: "quota" };
+  var body = { textQuery: q, languageCode: "zh-TW", regionCode: "TW", maxResultCount: n };
+  if (lat != null) body.locationBias = { circle: { center: { latitude: lat, longitude: lng }, radius: 20000 } };
+  var j = places_("places:searchText", body, "places.id,places.displayName,places.formattedAddress,places.location");
+  if (!j) return { err: "api" };
+  var out = (j.places || []).map(function (p) {
+    return { id: p.id, name: (p.displayName && p.displayName.text) || "", addr: p.formattedAddress || "", lat: p.location ? p.location.latitude : null, lng: p.location ? p.location.longitude : null };
+  });
+  if (lat != null) {
+    out.forEach(function (x) { if (x.lat != null) x.km = Math.round(LG.distKm(lat, lng, x.lat, x.lng) * 10) / 10; });
+    out.sort(function (a, b) { return (a.km == null ? 1e9 : a.km) - (b.km == null ? 1e9 : b.km); });
+  }
+  return { results: out };
+}
+// 電話和營業時間：有 id 就直接查；沒有就先用店名（＋地址或位置）找出最像的一家。同一家 6 小時內不重查。
+function placeInfo_(b) {
+  if (!placesKey_()) return { ok: false, err: "還沒設定 Google 地點服務，請先自己填" };
+  var id = String(b.id || "").replace(/[^\w-]/g, "").slice(0, 300);
+  if (!id) {
+    var q = String(b.q || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!q) return { ok: false, err: "沒有店名" };
+    var lat = Number(b.lat), lng = Number(b.lng), has = b.lat != null && b.lng != null && isFinite(lat) && isFinite(lng);
+    var s = placesSearch_(q, has ? lat : null, has ? lng : null, 1);
+    if (s.err) return { ok: false, err: s.err === "quota" ? QUOTA_MSG.search : "查不到（Google 沒回應）" };
+    if (!s.results.length) return { ok: false, err: "Google 上找不到這家店" };
+    id = s.results[0].id;
+  }
+  var cache = TEST ? null : CacheService.getScriptCache(), hit = cache && cache.get("pl:" + id);
+  if (hit) return JSON.parse(hit);
+  if (!quota_("detail")) return { ok: false, err: QUOTA_MSG.detail };
+  var p = places_("places/" + encodeURIComponent(id) + "?languageCode=zh-TW&regionCode=TW", null, "id,displayName,formattedAddress,nationalPhoneNumber,regularOpeningHours");
+  if (!p) return { ok: false, err: "查不到（Google 沒回應）" };
+  var out = { ok: true, id: p.id || id, name: (p.displayName && p.displayName.text) || "", addr: p.formattedAddress || "", phone: p.nationalPhoneNumber || "",
+    hours: (p.regularOpeningHours && p.regularOpeningHours.weekdayDescriptions) || [] };
+  if (cache) cache.put("pl:" + id, JSON.stringify(out), 21600);
+  return out;
+}
+
 // 打店名找地址：Google 的地圖服務查，最多回 5 個（同一個地址只留一個）
 // 有手機位置（lat、lng）：先在附近（約 15 公里內）找，再找全台；結果照距離排、附上距離
 function mapSearch_(q, lat, lng) {
@@ -369,6 +433,11 @@ function mapSearch_(q, lat, lng) {
   if (!q) return { ok: false, err: "沒有打店名" };
   lat = Number(lat); lng = Number(lng);
   var near = isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat || lng);
+  if (placesKey_()) {                      // 有 Places：找得到連鎖店、附近的店，結果帶店名和 id（之後查電話用）
+    var ps = placesSearch_(q, near ? lat : null, near ? lng : null, 5);
+    if (ps.err === "quota") return { ok: false, err: QUOTA_MSG.search };
+    if (ps.results && ps.results.length) return { ok: true, results: ps.results };
+  }
   var out = [];
   var add = function (g) {
     (g && g.results || []).forEach(function (x) {

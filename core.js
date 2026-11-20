@@ -739,6 +739,9 @@ export function cleanShops(raw) {
     for (const id of ids) if (!cur.photos.includes(id)) cur.photos.push(id);
     for (const b of Array.isArray(s.branches) ? s.branches : []) {
       const url = String(b?.url ?? "").trim(), x = { name: String(b?.name ?? "").trim().slice(0, 20), addr: String(b?.addr ?? "").trim().slice(0, 120), url: /^https?:\/\//i.test(url) ? url.slice(0, 500) : "" };
+      const phone = String(b?.phone ?? "").replace(/[^\d+\-#() ]/g, "").trim().slice(0, 20), hours = (Array.isArray(b?.hours) ? b.hours : []).map((h) => String(h ?? "").trim().slice(0, 60)).filter(Boolean).slice(0, 7);
+      if (phone) x.phone = phone;
+      if (hours.length) x.hours = hours;
       if ((x.name || x.addr || x.url) && !cur.branches.some((y) => y.name === x.name && y.addr === x.addr && y.url === x.url)) cur.branches.push(x);
     }
     cur.menu = cur.menu.slice(0, 60); cur.hide = cur.hide.slice(0, 100); cur.photos = cur.photos.slice(0, 12); cur.branches = cur.branches.slice(0, 20);
@@ -896,6 +899,19 @@ export function mealByTime(subs, when = new Date()) {
 
 // ---------------------------------------------------------------- Google 地圖查到的地址、分店名整理
 // 地址：拿掉郵遞區號後面的「台灣／臺灣」
+// 營業時間（Google 給的一天一行：「星期一: 休息」「星期二: 06:00 – 14:00」）
+const WEEK = "日一二三四五六";
+const dayOf = (line) => { const m = /^\s*(?:星期|週|周|禮拜)([日天一二三四五六])/.exec(line); return m ? WEEK.indexOf(m[1] === "天" ? "日" : m[1]) : -1; };
+const restOf = (line) => String(line).replace(/^[^:：]*[:：]\s*/, "");
+export const isClosedLine = (line) => /休息|公休|不營業|店休|closed/i.test(restOf(line));
+// 公休的是哪幾天（0＝星期日），照星期一到星期日排
+export const closedDays = (hours = []) => hours.filter(isClosedLine).map(dayOf).filter((d) => d >= 0).sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+export const dayName = (d) => "週" + WEEK[d];
+// 今天的營業時間：「06:00 – 14:00」「公休」；沒有今天那一行就回空字串
+export function todayHours(hours = [], date = new Date()) {
+  const line = hours.find((h) => dayOf(h) === date.getDay());
+  return line ? (isClosedLine(line) ? "公休" : restOf(line).trim()) : "";
+}
 export const cleanAddr = (a) => String(a || "").trim().replace(/^(\d{3,6})?\s*(台灣|臺灣)\s*/, "$1");
 const looksAddr = (s) => /[縣市區鄉鎮].*[路街道巷弄段號]|\d+\s*號/.test(s);
 // 分店名：Google 給的名稱常是「地址＋店名」（621005嘉義縣…181號麥味登 民雄中正店）→ 先切掉前面的地址；

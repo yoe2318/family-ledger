@@ -557,3 +557,13 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 .shop-tags { flex-wrap: wrap; padding: 8px 0 4px; }
 .shop-sec { margin-top: 16px; }
 .cand .km { display: block; color: var(--muted); font-size: 12px; }
+
+/* 分店：電話、營業時間 */
+.sm-row.br .tel { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; color: var(--accent-ink); text-decoration: none; font-family: var(--font-mono); font-size: 14px; }
+.sm-row.br .tel .ico, .hours summary .ico { width: 14px; height: 14px; }
+.hours { margin-top: 4px; font-size: 13px; color: var(--ink-2, inherit); }
+.hours summary { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; list-style: none; }
+.hours summary::-webkit-details-marker { display: none; }
+.hours div { padding: 2px 0 2px 18px; font-family: var(--font-mono); }
+.hours div.off { color: var(--muted, inherit); }
+textarea#b-hours { width: 100%; font: inherit; font-size: 15px; resize: vertical; }

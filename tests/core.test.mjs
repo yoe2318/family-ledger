@@ -359,5 +359,14 @@ eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義
   eq("刪掉之後再新增同名的店：會出現", C.shopIndex(d1.items, C.setShop(d1, "全家", {}).shops).some((s) => s.name === "全家"), true);
   eq("刪掉自己加的店（沒記過）：整個不見", C.removeShop(d0, "手搖").shops.map((s) => s.name), ["麥味登"]);
 }
+// 分店電話、營業時間
+{
+  const b = C.cleanShops([{ name: "X", branches: [{ addr: "a", phone: "05-226 1234<script>", hours: ["星期一: 休息", " 星期二: 06:00 – 14:00 ", "", "星期日: 公休"] }, { addr: "b" }] }])[0].branches;
+  eq("分店：電話只留數字和符號、營業時間去空白；沒填的不多欄位", b, [{ name: "", addr: "a", url: "", phone: "05-226 1234", hours: ["星期一: 休息", "星期二: 06:00 – 14:00", "星期日: 公休"] }, { name: "", addr: "b", url: "" }]);
+  const h = ["星期一: 休息", "星期二: 06:00 – 14:00", "星期三: 06:00 – 14:00", "星期日: 休息"];
+  eq("公休：星期一、星期日（照週一到週日排）", C.closedDays(h).map(C.dayName), ["週一", "週日"]);
+  eq("今天的營業時間", [C.todayHours(h, new Date(2026, 10, 24)), C.todayHours(h, new Date(2026, 10, 23)), C.todayHours(h, new Date(2026, 10, 27)), C.todayHours([])], ["06:00 – 14:00", "公休", "", ""]);
+  eq("全天營業不算公休", C.closedDays(["星期一: 24 小時營業"]), []);
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);
