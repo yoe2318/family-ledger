@@ -224,7 +224,17 @@ var LG = (function () {
     return 2 * R * Math.asin(Math.sqrt(h));
   }
 
-  return { distKm: distKm, isMapHost: isMapHost, parseMapUrl: parseMapUrl, parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
+  // 從地址拆出縣市和鄉鎮區：「621台灣嘉義縣民雄鄉…」→ { city: "嘉義縣", town: "民雄鄉" }
+  function areaOf(addr) {
+    var s = String(addr || "").replace(/^\s*\d*\s*/, "").replace(/^(台灣|臺灣)\s*/, "").replace(/^\d+\s*/, "");
+    var m = /^(\S{2,3}?[縣市])(\S{1,3}?[鄉鎮市區])/.exec(s);
+    return m ? { city: m[1], town: m[2] } : null;
+  }
+
+  // 找店的結果要有路名或門牌；只有「嘉義縣」「中山區」「某某村」的是 Google 找不到店時給的地區，不要
+  function isPlaceAddr(addr) { return /[路街道巷弄號段]/.test(String(addr || "").replace(/^\s*\d*\s*(台灣|臺灣)?/, "")); }
+
+  return { isPlaceAddr: isPlaceAddr, areaOf: areaOf, distKm: distKm, isMapHost: isMapHost, parseMapUrl: parseMapUrl, parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
     migrateLegacy: migrateLegacy, buildEntry: buildEntry, describe: describe, amountOf: amountOf, HELP: HELP };
 })();
 if (typeof module !== "undefined") module.exports = LG;

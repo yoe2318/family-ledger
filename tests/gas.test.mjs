@@ -95,6 +95,9 @@ eq(LG.describe(E("a", ["b"], 500, "pay"), nm), "李宸yo 還 劉芳慈 500", "�
 
 // ---- Google 地圖網址
 eq([LG.isMapHost("https://maps.app.goo.gl/AbC123"), LG.isMapHost("https://www.google.com/maps/place/x"), LG.isMapHost("https://www.google.com.tw/maps/@1,2,3z"), LG.isMapHost("https://maps.google.com/?q=x"), LG.isMapHost("https://goo.gl/maps/xyz")], [true, true, true, true, true], "地圖網址：接受");
+eq([LG.areaOf("621台灣嘉義縣民雄鄉東榮村建國路一段18號"), LG.areaOf("104台灣台北市中山區南京東路1號"), LG.areaOf("台灣新竹市東區光復路"), LG.areaOf("彰化縣彰化市中山路"), LG.areaOf("")],
+  [{ city: "嘉義縣", town: "民雄鄉" }, { city: "台北市", town: "中山區" }, { city: "新竹市", town: "東區" }, { city: "彰化縣", town: "彰化市" }, null], "地址拆出縣市、鄉鎮區");
+eq(["621台灣嘉義縣民雄鄉東榮村建國路一段18號", "台灣嘉義縣", "104台灣臺北市中山區", "621台灣嘉義縣民雄鄉北斗村民雄", "台北市大安區復興南路一段390號", "新北市三重區重新路5段609巷"].map(LG.isPlaceAddr), [true, false, false, false, true, true], "找店：只有地區的不要");
 eq([LG.isMapHost("https://evil.com/maps"), LG.isMapHost("https://www.google.com/search?q=x"), LG.isMapHost("http://169.254.169.254/"), LG.isMapHost("javascript:alert(1)"), LG.isMapHost("")], [false, false, false, false, false], "地圖網址：別的網站不收");
 const PU = LG.parseMapUrl;
 eq(PU("https://www.google.com/maps/place/%E5%85%AB%E6%96%B9%E9%9B%B2%E9%9B%86+%E4%B8%AD%E5%B1%B1%E5%BA%97/@25.05,121.52,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x1!8m2!3d25.0512!4d121.5233"),

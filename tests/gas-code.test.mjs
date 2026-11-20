@@ -131,10 +131,10 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
 {
   const seen = [];
   ctx.Maps = { newGeocoder: () => ({ setLanguage() { return this; }, setRegion() { return this; },
-    geocode(q) { seen.push(q); return { results: q.includes("沒有") ? [] : [1, 2, 2, 3, 4, 5, 6].map((i) => ({ formatted_address: "地址" + i, geometry: { location: { lat: 25 + i / 100, lng: 121 } } })) }; } }) };
+    geocode(q) { seen.push(q); return { results: q.includes("沒有") ? [] : [1, 2, 2, 3, 4, 5, 6].map((i) => ({ formatted_address: "中山路" + i + "號", geometry: { location: { lat: 25 + i / 100, lng: 121 } } })) }; } }) };
   const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
   let r = post({ op: "search", q: "  麥味登   民雄  " });
-  ok(r.ok && r.results.length === 5 && r.results.map((x) => x.addr).join() === "地址1,地址2,地址3,地址4,地址5" && seen[0] === "麥味登 民雄", "找地址：最多 5 個、去重複、空白整理", JSON.stringify(r));
+  ok(r.ok && r.results.length === 5 && r.results.map((x) => x.addr).join() === "中山路1號,中山路2號,中山路3號,中山路4號,中山路5號" && seen[0] === "麥味登 民雄", "找地址：最多 5 個、去重複、空白整理", JSON.stringify(r));
   r = post({ op: "search", q: "" }); ok(!r.ok, "沒打店名");
   r = post({ op: "search", q: "沒有這家" }); ok(!r.ok && r.err.includes("找不到"), "找不到");
 }
@@ -143,12 +143,15 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
 {
   const calls = [];
   ctx.Maps = { newGeocoder: () => { const g = { b: null, setLanguage() { return g; }, setRegion() { return g; }, setBounds(...a) { g.b = a; return g; },
-    geocode(q) { calls.push(g.b ? "near" : "all"); return { results: g.b ? [{ formatted_address: "近的店", geometry: { location: { lat: 23.56, lng: 120.43 } } }] : [{ formatted_address: "遠的店", geometry: { location: { lat: 25.03, lng: 121.56 } } }, { formatted_address: "近的店", geometry: { location: { lat: 23.56, lng: 120.43 } } }] }; } }; return g; } };
+    reverseGeocode() { calls.push("rev"); return { results: [{ formatted_address: "621台灣嘉義縣民雄鄉東榮村建國路一段18號" }] }; },
+    geocode(q) { calls.push((g.b ? "near" : "all") + (q.includes("民雄鄉") ? "+鄉" : q.includes("嘉義縣") ? "+縣" : "")); return { results: g.b ? [{ formatted_address: "近的路1號", geometry: { location: { lat: 23.56, lng: 120.43 } } }, { formatted_address: "台灣嘉義縣", types: ["administrative_area_level_2", "political"], geometry: { location: { lat: 23.5, lng: 120.4 } } }] : [{ formatted_address: "遠的路2號", geometry: { location: { lat: 25.03, lng: 121.56 } } }, { formatted_address: "近的路1號", geometry: { location: { lat: 23.56, lng: 120.43 } } }] }; } }; return g; } };
   const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
   let r = post({ op: "search", q: "麥當勞", lat: 23.55, lng: 120.43 });
-  ok(r.ok && r.results.map((x) => x.addr).join() === "近的店,遠的店" && r.results[0].km < 2 && r.results[1].km > 100 && calls.join() === "near,all", "有位置：附近的排前面、有距離", JSON.stringify(r));
+  ok(r.ok && r.results.map((x) => x.addr).join() === "近的路1號,遠的路2號" && r.results[0].km < 2 && r.results[1].km > 100 && calls.join() === "rev,near+鄉,near+縣,near,all", "有位置：附近的排前面、有距離、自動加上鄉鎮、只有地區的不要", JSON.stringify(r));
   calls.length = 0; r = post({ op: "search", q: "麥當勞" });
   ok(r.ok && calls.join() === "all" && r.results[0].km === undefined, "沒位置：照舊", JSON.stringify(r));
+  calls.length = 0; r = post({ op: "search", q: "麥當勞 民雄", lat: 23.55, lng: 120.43 });
+  ok(!calls.includes("near+鄉") && calls.includes("near"), "店名已經有地區：不重複加", calls.join());
   ok(Math.abs(ctx.LG.distKm(25.0339, 121.5645, 23.5577, 120.4698) - 196) < 5, "距離：台北101 到民雄大約 196 公里");
 }
 

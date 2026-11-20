@@ -373,12 +373,23 @@ function mapSearch_(q, lat, lng) {
   var add = function (g) {
     (g && g.results || []).forEach(function (x) {
       var a = x.formatted_address || "", loc = x.geometry && x.geometry.location;
+      if ((x.types || []).indexOf("political") >= 0 || !LG.isPlaceAddr(a)) return;   // 只是「嘉義縣」「中山區」這種地區（Google 找不到店時的退路），不要
       if (a && !out.some(function (y) { return y.addr === a; })) out.push({ addr: a, lat: loc ? loc.lat : null, lng: loc ? loc.lng : null });
     });
   };
+  var geo = function () { return Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw"); };
+  var nearGeo = function (s) { add(geo().setBounds(lat - 0.15, lng - 0.15, lat + 0.15, lng + 0.15).geocode(s)); };
   try {
-    if (near) add(Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").setBounds(lat - 0.15, lng - 0.15, lat + 0.15, lng + 0.15).geocode(q));
-    add(Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw").geocode(q));
+    if (near) {
+      // Google 的地址查詢光打「麥當勞」常常找不到；先查出手機在哪個鄉鎮區，自動接在店名後面
+      var area = null, rev = geo().reverseGeocode(lat, lng);
+      (rev && rev.results || []).some(function (x) { area = LG.areaOf(x.formatted_address); return !!area; });
+      var has = function (w) { return q.indexOf(w.replace(/[縣市鄉鎮區]$/, "")) >= 0; };
+      if (area && !has(area.town)) nearGeo(q + " " + area.town);
+      if (area && !has(area.city) && out.length < 2) nearGeo(q + " " + area.city);
+      nearGeo(q);
+    }
+    add(geo().geocode(q));
   } catch (err) { console.error(err && err.stack || err); }
   if (near) {
     out.forEach(function (x) { if (x.lat != null) x.km = Math.round(LG.distKm(lat, lng, x.lat, x.lng) * 10) / 10; });
