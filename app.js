@@ -1517,8 +1517,8 @@ function branchForm(s, name, idx) {
   s.swap((el, s2) => {
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><button class="icon-btn" data-bback aria-label="回到店家">${ico("chevron-left")}</button><h3>${cur ? "改地址" : "加地址"}・${esc(name)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
-        <div class="field"><label for="b-url">Google 地圖網址</label><input id="b-url" value="${esc(st.url)}" placeholder="貼上分享的網址，例如 https://maps.app.goo.gl/…" inputmode="url" autocomplete="off"></div>
-        <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" id="b-msg" style="margin:-4px 0 8px">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」，貼到這裡就會自動填地址。")}</p>
+        <div class="field stack"><label for="b-url">Google 地圖網址</label><input id="b-url" value="${esc(st.url)}" placeholder="貼上分享的網址，例如 https://maps.app.goo.gl/…" inputmode="url" autocomplete="off"></div>
+        <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" id="b-msg" style="margin:6px 0 10px;line-height:1.5">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」，貼到這裡就會自動填地址。")}</p>
         ${st.url ? `<div class="row-btns" style="margin:0 0 8px"><button class="btn" data-blook${st.busy ? " disabled" : ""}>${ico("search")}${st.busy ? "查地址中…" : "從網址查地址"}</button></div>` : ""}
         <div class="field"><label for="b-name">分店名</label><input id="b-name" value="${esc(st.name)}" maxlength="20" placeholder="選填，例如：中山店"></div>
         <div class="field"><label for="b-addr">地址</label><input id="b-addr" value="${esc(st.addr)}" maxlength="120" placeholder="例如：台北市中山區…"></div>

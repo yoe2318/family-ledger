@@ -538,3 +538,6 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 .photo-view .pv-nav.next { right: max(8px, env(safe-area-inset-right)); }
 .photo-view .pv-nav:disabled { opacity: .25; }
 .photo-view .pv-h .num { font-family: var(--font-mono); font-weight: 400; opacity: .8; }
+
+/* 標題放上面、輸入框整行寬（標題太長、一行放不下時用） */
+.field.stack { grid-template-columns: minmax(0, 1fr); gap: 6px; border-bottom: 0; padding-bottom: 0; }
