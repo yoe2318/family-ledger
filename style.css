@@ -567,3 +567,4 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 .hours div { padding: 2px 0 2px 18px; font-family: var(--font-mono); }
 .hours div.off { color: var(--muted, inherit); }
 textarea#b-hours { width: 100%; font: inherit; font-size: 15px; resize: vertical; }
+.cand span b { display: block; font-weight: 700; }

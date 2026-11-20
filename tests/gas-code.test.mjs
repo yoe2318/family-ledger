@@ -182,6 +182,9 @@ ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器�
   ok(!r.ok && r.err.includes("次數用完") && calls.length === 0, "查電話：今天 30 次用完就不再查", JSON.stringify(r));
   T.props = { Q_search: "2000-01-01:150" };
   r = post({ op: "search", q: "麥當勞" }); ok(r.ok && T.props.Q_search.endsWith(":1"), "換天：次數歸零", JSON.stringify(T.props));
+  T.props = { Q_search: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10) + ":150" };
+  calls.length = 0; r = post({ op: "search", q: "麥當勞" });
+  ok(r.ok && r.results.length && !r.results[0].id && calls.length === 0, "找店次數用完：退回免費的地址查詢，地址照樣找得到", JSON.stringify(r));
   T.placesKey = ""; r = post({ op: "place", id: "near1" }); ok(!r.ok && r.err.includes("還沒設定"), "沒金鑰：查電話說還沒設定");
 }
 

@@ -677,8 +677,7 @@ function mapSearch_(q, lat, lng) {
   var near = isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat || lng);
   if (placesKey_()) {                      // 有 Places：找得到連鎖店、附近的店，結果帶店名和 id（之後查電話用）
     var ps = placesSearch_(q, near ? lat : null, near ? lng : null, 5);
-    if (ps.err === "quota") return { ok: false, err: QUOTA_MSG.search };
-    if (ps.results && ps.results.length) return { ok: true, results: ps.results };
+    if (ps.results && ps.results.length) return { ok: true, results: ps.results };   // 次數用完或 Google 沒回應：往下用免費的地址查詢
   }
   var out = [];
   var add = function (g) {
