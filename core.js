@@ -885,12 +885,26 @@ export const cleanAddr = (a) => String(a || "").trim().replace(/^(\d{3,6})?\s*(�
 const looksAddr = (s) => /[縣市區鄉鎮].*[路街道巷弄段號]|\d+\s*號/.test(s);
 // 分店名：Google 給的名稱常是「地址＋店名」（621005嘉義縣…181號麥味登 民雄中正店）→ 先切掉前面的地址；
 // 名稱裡有這家店的店名才把剩下的當分店名（民雄中正店），判斷不出來就回空字串，不硬填
+// Google 給的名稱前面常黏著地址，切掉
+export function stripAddr(place) {
+  const s = String(place || "").trim(), m = /^(\d{3,6})?\s*(台灣|臺灣)?\s*\S*?[縣市]\S*?(號|樓)(之\d+)?(\d+\s*樓)?\s*/.exec(s);
+  return (m ? s.slice(m[0].length) : s).trim();
+}
+// 像分店名的才算（結尾是 店／館／門市，例如 民雄中正店、101 館）；「義式料理」這種是店名的一部分，不算
+const isBranch = (s) => !!s && !looksAddr(s) && /(店|館|門市)$/.test(s) && s.length <= 20;
+const trimSep = (s) => s.replace(/^[\s\-－–|｜/（(・·]+|[\s)）]+$/g, "").trim();
 export function branchFromPlace(place, shop) {
-  let s = String(place || "").trim();
-  const m = /^(\d{3,6})?\s*(台灣|臺灣)?\s*\S*?[縣市]\S*?(號|樓)(之\d+)?(\d+\s*樓)?\s*/.exec(s);
-  if (m) s = s.slice(m[0].length).trim();
+  const s = stripAddr(place);
   shop = String(shop || "").trim();
   if (!s || !shop || !s.includes(shop)) return "";
-  const rest = s.replace(shop, "").replace(/^[\s\-－–|｜/（(・·]+|[\s)）]+$/g, "").trim();
-  return rest && !looksAddr(rest) ? rest.slice(0, 20) : "";
+  const rest = trimSep(s.replace(shop, ""));
+  return isBranch(rest) ? rest : "";
+}
+// 新增店家時貼地圖網址：拆成店名＋分店名（「麥味登 民雄中正店」→ 麥味登／民雄中正店；「八方雲集(中山店)」→ 八方雲集／中山店）；拆不出分店就整個當店名
+export function placeParts(place) {
+  const s = stripAddr(place);
+  if (!s) return { shop: "", branch: "" };
+  const m = /^(.+?)[\s\-－–|｜/・·]*[（(]([^）)]+)[）)]$/.exec(s) || /^(.+?)[\s\-－–|｜/・·]+(\S+)$/.exec(s);
+  if (m && isBranch(m[2].trim()) && m[1].trim()) return { shop: m[1].trim().slice(0, 20), branch: m[2].trim() };
+  return { shop: s.slice(0, 20), branch: "" };
 }

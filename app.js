@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.1";
+const VERSION = "1.7.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1400,11 +1400,57 @@ function pgShops() {
     <div class="row-btns" style="margin-top:8px"><input id="shop-q" type="search" value="${esc(ui.shopQ || "")}" placeholder="找店家或地址" aria-label="找店家或地址" style="flex:1;min-width:0"><button class="btn" data-shopnew>${ico("plus")}新增店家</button></div>
     <div id="shop-list">${shopListHTML()}</div>`;
 }
-async function newShop() {
-  const v = (await ask("新增店家", "店名", [["no", "取消"], ["ok", "新增", "primary"]], ""))?.trim();
-  if (!v) return;
-  if (!C.findShop(shopIdx(), v)) commit(C.setShop(data, v, {}));
-  shopSheet(v);
+// 新增店家：打店名，或貼 Google 地圖網址自動填店名和地址（地址存成這家的第一個地址）
+const MAP_URL_RE = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+\/maps)\/?\S*$/i;
+function newShop() {
+  const st = { name: "", url: "", addr: "", branch: "", msg: "", busy: false, lastUrl: "", autoName: false };
+  openSheet((el, s) => {
+    const draw = () => {
+      el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>新增店家</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <div class="field stack"><label for="n-url">Google 地圖網址（選填）</label><input id="n-url" value="${esc(st.url)}" placeholder="貼上分享的網址，就會自動填店名和地址" inputmode="url" autocomplete="off"></div>
+        <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" style="margin:6px 0 10px;line-height:1.5">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」貼到這裡；也可以只打店名。")}</p>
+        <div class="field"><label for="n-name">店名</label><input id="n-name" value="${esc(st.name)}" maxlength="20" placeholder="例如：麥味登"></div>
+        ${st.addr ? `<div class="field"><span class="lab">地址</span><span>${esc(st.addr)}</span></div>` : ""}
+        <div class="row-btns"><button class="btn grow" data-close>取消</button><button class="btn primary grow" data-nsave${st.busy ? " disabled" : ""}>新增</button></div>`;
+    };
+    const look = async () => {
+      const url = st.url.trim();
+      if (!url || st.busy || url === st.lastUrl) return;
+      st.busy = true; st.lastUrl = url; st.msg = "查店名和地址中…"; draw();
+      const r = await mapLookup(url);
+      st.busy = false;
+      if (r?.ok && (r.addr || r.name)) {
+        const pp = C.placeParts(r.name || "");
+        if (pp.shop && (!st.name || st.autoName)) { st.name = pp.shop; st.autoName = true; }
+        st.addr = r.addr ? C.cleanAddr(r.addr) : ""; st.branch = pp.branch;
+        st.msg = pp.shop ? "找到了，店名和地址已經填好（店名可以再改）。" : "只找到地址，店名請自己打。";
+      } else st.msg = `查不到（${r?.err || "不知道為什麼"}），請自己打店名；網址會照樣存起來。`;
+      draw();
+    };
+    let t = 0;
+    draw();
+    el.querySelector("#n-name")?.focus();
+    el.addEventListener("input", (e) => {
+      if (e.target.id === "n-name") { st.name = e.target.value; st.autoName = false; }
+      if (e.target.id === "n-url") { st.url = e.target.value; clearTimeout(t); if (MAP_URL_RE.test(st.url.trim())) t = setTimeout(look, 400); }
+    });
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.close !== undefined) return s.close();
+      if (b.dataset.nsave !== undefined) {
+        const v = st.name.trim(), url = st.url.trim();
+        if (!v) return toast("先打店名，或貼 Google 地圖網址");
+        if (!C.findShop(shopIdx(), v)) commit(C.setShop(data, v, {}));
+        if (st.addr || /^https?:\/\//i.test(url)) {   // 地址存成這家的地址（已經有別的地址＝這是另一間分店，才填分店名）
+          const list = [...(ownShop(v)?.branches || [])];
+          list.push({ name: list.length ? st.branch : "", addr: st.addr, url: /^https?:\/\//i.test(url) ? url : "" });
+          commit(C.setShop(data, v, { branches: list }));
+        }
+        shopSheet(v, s);
+      }
+    });
+  });
 }
 // 一家店的面板：改名（同名＝合併）、預設分類、菜單、菜單照片（好幾張）、分店地址（好幾個）、刪除
 function shopSheet(name0, into = null) {
@@ -1533,7 +1579,8 @@ function branchForm(s, name, idx) {
       st.busy = false;
       if (r?.ok && (r.addr || r.name)) {
         if (r.addr) { st.addr = C.cleanAddr(r.addr); st.autoAddr = true; }
-        if (r.name && (!st.name || st.autoName)) { st.name = C.branchFromPlace(r.name, name); st.autoName = true; }   // 判斷不出分店名就留空
+        const others = (ownShop(name)?.branches || []).filter((_, i) => i !== idx).length;   // 只有一間就不用分店名
+        if (r.name && (!st.name || st.autoName)) { st.name = others ? C.branchFromPlace(r.name, name) : ""; st.autoName = true; }   // 判斷不出分店名就留空
         st.msg = r.addr ? "找到了，地址已經填好（可以再改）。" : "只找到店名，地址請自己打。";
       } else st.msg = `查不到地址（${r?.err || "不知道為什麼"}），請自己打；網址會照樣存起來。`;
       draw();
@@ -1549,7 +1596,7 @@ function branchForm(s, name, idx) {
       if (k === "name") st.autoName = false;
       if (k !== "url") return;
       clearTimeout(lookT);
-      if (/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+\/maps)\/?\S*$/i.test(st.url.trim())) lookT = setTimeout(() => { draw(); look(); }, 400);
+      if (MAP_URL_RE.test(st.url.trim())) lookT = setTimeout(() => { draw(); look(); }, 400);
     });
     el.addEventListener("change", (e) => { if (e.target.id === "b-url") { draw(); look(); } });
     el.addEventListener("paste", (e) => { if (e.target.id === "b-url") setTimeout(() => { st.url = e.target.value; draw(); look(); }, 0); });

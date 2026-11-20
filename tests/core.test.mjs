@@ -339,6 +339,11 @@ eq("數量：菜單記一份的價錢", C.findShop(C.shopIndex([{ id: "q", type:
 eq("地址：拿掉台灣", [C.cleanAddr("621005台灣嘉義縣民雄鄉裕農路181號"), C.cleanAddr("110臺灣臺北市信義區信義路五段7號"), C.cleanAddr("台灣台北市中山區")], ["621005嘉義縣民雄鄉裕農路181號", "110臺北市信義區信義路五段7號", "台北市中山區"]);
 eq("分店名：地址＋店名 → 只留分店", C.branchFromPlace("621005嘉義縣民雄鄉裕農路181號麥味登 民雄中正店", "麥味登"), "民雄中正店");
 eq("分店名：店名＋分店（沒有地址）", [C.branchFromPlace("八方雲集 中山店", "八方雲集"), C.branchFromPlace("八方雲集(中山店)", "八方雲集"), C.branchFromPlace("麥當勞-台北站前店", "麥當勞")], ["中山店", "中山店", "台北站前店"]);
+eq("分店名：不像分店的不算（義式料理是店名的一部分）", [C.branchFromPlace("V pasta 義式料理", "V pasta"), C.branchFromPlace("621嘉義縣民雄鄉三興村神農路129之1號V pasta義式料理", "V pasta")], ["", ""]);
+eq("新增店家拆店名：店名＋分店", [C.placeParts("621005嘉義縣民雄鄉裕農路181號麥味登 民雄中正店"), C.placeParts("八方雲集(中山店)"), C.placeParts("麥當勞-台北站前店")],
+  [{ shop: "麥味登", branch: "民雄中正店" }, { shop: "八方雲集", branch: "中山店" }, { shop: "麥當勞", branch: "台北站前店" }]);
+eq("新增店家拆店名：拆不出分店就整個當店名", [C.placeParts("621嘉義縣民雄鄉三興村神農路129之1號V pasta義式料理"), C.placeParts("V pasta 義式料理"), C.placeParts("台北101"), C.placeParts("110台北市信義區信義路五段7號")],
+  [{ shop: "V pasta義式料理", branch: "" }, { shop: "V pasta 義式料理", branch: "" }, { shop: "台北101", branch: "" }, { shop: "", branch: "" }]);
 eq("分店名：判斷不出來就空著", [C.branchFromPlace("621005嘉義縣民雄鄉裕農路181號", "麥味登"), C.branchFromPlace("某某早餐店", "麥味登"), C.branchFromPlace("麥味登", "麥味登"), C.branchFromPlace("麥味登 嘉義縣民雄鄉中正路1號", "麥味登"), C.branchFromPlace("", "麥味登")], ["", "", "", "", ""]);
 eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義路五段7號5樓鼎泰豐 101店", "鼎泰豐"), "101店");
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
