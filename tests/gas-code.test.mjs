@@ -102,5 +102,30 @@ ctx.post({ postData: { contents: JSON.stringify({ events: [{ type: "message", re
 ok(rows("明細v2").length === before, "沒有 destination：不記");
 ctx.post(ev("Ubot")); ok(rows("明細v2").length === before + 1, "真的機器人訊息：記");
 
+// 8. 店家地址：Google 地圖網址查地址（假的 UrlFetchApp 轉址、假的 Maps）
+{
+  const hops = { "https://maps.app.goo.gl/Short1": "https://www.google.com/maps/place/%E5%85%AB%E6%96%B9%E9%9B%B2%E9%9B%86/@25.05,121.52,17z/data=!3d25.0512!4d121.5233" };
+  const fetched = [];
+  ctx.UrlFetchApp = { fetch: (u) => { fetched.push(u); return { getHeaders: () => (hops[u] ? { Location: hops[u] } : {}) }; } };
+  const geo = { calls: [], setLanguage() { return this; }, setRegion() { return this; },
+    reverseGeocode(lat, lng) { this.calls.push(["rev", lat, lng]); return { results: [{ formatted_address: "104台北市中山區某某路1號" }] }; },
+    geocode(q) { this.calls.push(["geo", q]); return { results: [{ formatted_address: "110台北市信義區信義路五段7號", geometry: { location: { lat: 25.03, lng: 121.56 } } }] }; } };
+  ctx.Maps = { newGeocoder: () => geo };
+  const post = (b) => JSON.parse(ctx.post({ postData: { contents: JSON.stringify(b) } }).s);
+  let r = post({ op: "map", url: "https://maps.app.goo.gl/Short1" });
+  ok(r.ok && r.addr === "104台北市中山區某某路1號" && r.name === "八方雲集" && r.lat === 25.0512, "短網址：轉址後用店的座標查地址", JSON.stringify(r));
+  ok(fetched.length === 1 && geo.calls[0][0] === "rev", "短網址只打開一次、用座標反查");
+  r = post({ op: "map", url: "https://maps.google.com/?q=%E5%8F%B0%E5%8C%97101" });
+  ok(r.ok && r.addr.includes("信義路") && r.lat === 25.03, "q= 的名稱：查地址", JSON.stringify(r));
+  fetched.length = 0;
+  r = post({ op: "map", url: "https://evil.com/x" });
+  ok(!r.ok && fetched.length === 0, "別的網站：不打開", JSON.stringify(r));
+  hops["https://maps.app.goo.gl/Bad"] = "https://evil.com/steal";
+  r = post({ op: "map", url: "https://maps.app.goo.gl/Bad" });
+  ok(!r.ok && !fetched.includes("https://evil.com/steal"), "轉到別的網站：不跟過去", JSON.stringify(r));
+  r = post({ op: "map", url: "https://maps.app.goo.gl/Short1", key: "" });
+  ok(r.ok, "查地址不需要連動碼");
+}
+
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

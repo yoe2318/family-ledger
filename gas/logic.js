@@ -183,7 +183,41 @@ var LG = (function () {
     "・群組名 宿舍飯錢 → 幫這本帳取名字\n" +
     "・私訊我「連動碼」→ 在記帳 App 裡看帳、記帳";
 
-  return { parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
+  // ---- Google 地圖網址（記帳 App 的店家地址用）
+  // 只接受 Google 地圖的網址（Apps Script 不會被拿去打開別的網站）
+  function isMapHost(url) {
+    var m = /^https?:\/\/([^\/?#]+)(\/[^?#]*)?/i.exec(String(url || "").trim());
+    if (!m) return false;
+    var host = m[1].toLowerCase(), path = m[2] || "/";
+    if (host === "maps.app.goo.gl") return true;
+    if (host === "goo.gl" && /^\/maps\b/.test(path)) return true;
+    if (/^maps\.google\.com(\.[a-z]{2})?$/.test(host)) return true;
+    if (/^(www\.)?google\.com(\.[a-z]{2})?$/.test(host) && /^\/maps\b/.test(path)) return true;
+    if (host === "consent.google.com") return true;
+    return false;
+  }
+  function param(url, k) {
+    var m = new RegExp("[?&]" + k + "=([^&#]*)").exec(url);
+    if (!m) return "";
+    try { return decodeURIComponent(m[1].replace(/\+/g, " ")); } catch (e) { return ""; }
+  }
+  // 從網址找出：name（/place/ 後面那段）、lat/lng（先找 !3d!4d＝店本身，再找 @＝畫面中心）、query（q= 或 query=）
+  function parseMapUrl(url) {
+    url = String(url || "");
+    if (/^https?:\/\/consent\.google\.com/i.test(url)) { var c = param(url, "continue"); if (c) return parseMapUrl(c); }
+    var out = { name: "", lat: null, lng: null, query: "" };
+    var pm = /\/maps\/place\/([^\/?#]+)/.exec(url);
+    if (pm) { try { out.name = decodeURIComponent(pm[1].replace(/\+/g, " ")).trim(); } catch (e) { out.name = pm[1]; } }
+    var d = /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/.exec(url), at = /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/.exec(url);
+    var ll = d || at;
+    if (ll) { out.lat = Number(ll[1]); out.lng = Number(ll[2]); }
+    out.query = (param(url, "q") || param(url, "query")).trim();
+    var qll = /^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/.exec(out.query);
+    if (qll && out.lat === null) { out.lat = Number(qll[1]); out.lng = Number(qll[2]); out.query = ""; }
+    return out;
+  }
+
+  return { isMapHost: isMapHost, parseMapUrl: parseMapUrl, parseMessage: parseMessage, matchName: matchName, splitShares: splitShares, balances: balances, pairTotals: pairTotals, myShare: myShare,
     migrateLegacy: migrateLegacy, buildEntry: buildEntry, describe: describe, amountOf: amountOf, HELP: HELP };
 })();
 if (typeof module !== "undefined") module.exports = LG;

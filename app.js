@@ -2,12 +2,13 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.6.5";
+const VERSION = "1.7.0";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   store: '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/>',
+  "map-pin": '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   "chevron-left": '<path d="m15 18-6-6 6-6"/>',
@@ -1375,17 +1376,28 @@ async function friendEntry(id) {
   if (v === "del") queueFriend({ op: "del", id });
 }
 
-// ---- 店家與菜單：從明細學到的（去過幾次、點過什麼、多少錢）＋自己整理的（菜單、照片、預設分類）
-const photoKey = (name) => "shop:" + name;
+// ---- 店家與菜單：從明細學到的（去過幾次、點過什麼、多少錢）＋自己整理的（菜單、照片、分店地址、預設分類）
+// 照片 key：id "0" 是舊的那一張（shop:店名），其他是 shop:店名#id
+const photoKey = (name, id = "0") => (id === "0" ? "shop:" + name : `shop:${name}#${id}`);
+const ownShop = (name) => (data.shops || []).find((x) => x.name === name);
+const mapsHref = (b) => b.url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.addr || b.name)}`;
+// 貼 Google 地圖網址 → 請 LINE 機器人那支 Apps Script 查地址（網頁自己不能打開別的網站）
+async function mapLookup(url) {
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(C.FRIEND_API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ op: "map", url }), signal: ctl.signal });
+    return await r.json();
+  } catch { return { ok: false, err: "連不上（沒網路，或查太久）" }; } finally { clearTimeout(tm); }
+}
 function shopListHTML() {
-  const q = (ui.shopQ || "").trim(), list = shopIdx().sort((a, b) => b.count - a.count || b.lastT - a.lastT || a.name.localeCompare(b.name)).filter((s) => !q || s.name.includes(q));
-  return list.map((s) => `<button class="menu-row" data-shop="${esc(s.name)}">${ico("store")}<span class="t">${esc(s.name)}<small>${esc([s.count ? `去過 ${s.count} 次・最近 ${mmdd(s.lastT)}` : "還沒記過", s.cat ? s.cat + (s.sub ? "・" + s.sub : "") : "", s.menu.length ? `菜單 ${s.menu.length} 樣` : "", s.photo ? "有照片" : ""].filter(Boolean).join("・"))}</small></span><span class="chev">${ico("chevron-right")}</span></button>`).join("")
+  const q = (ui.shopQ || "").trim(), list = shopIdx().sort((a, b) => b.count - a.count || b.lastT - a.lastT || a.name.localeCompare(b.name)).filter((s) => !q || s.name.includes(q) || s.branches.some((b) => (b.addr + b.name).includes(q)));
+  return list.map((s) => `<button class="menu-row" data-shop="${esc(s.name)}">${ico("store")}<span class="t">${esc(s.name)}<small>${esc([s.count ? `去過 ${s.count} 次・最近 ${mmdd(s.lastT)}` : "還沒記過", s.cat ? s.cat + (s.sub ? "・" + s.sub : "") : "", s.menu.length ? `菜單 ${s.menu.length} 樣` : "", s.photos.length ? `${s.photos.length} 張菜單照片` : "", s.branches.length ? `${s.branches.length} 個地址` : ""].filter(Boolean).join("・"))}</small></span><span class="chev">${ico("chevron-right")}</span></button>`).join("")
     || `<div class="empty">${q ? "找不到這家店。" : "還沒有店家。記帳時在「明細」填店家，這裡就會自動出現；也可以先新增，把菜單放進來。"}</div>`;
 }
 function pgShops() {
   return `${subHead("店家與菜單")}
-    <p class="small muted">記帳時在明細填過的店家、點過的東西都會自動記在這裡；下次選這家，會列出點過的品項和上次的價錢。也可以先把菜單放進來，或拍一張菜單照片。</p>
-    <div class="row-btns" style="margin-top:8px"><input id="shop-q" type="search" value="${esc(ui.shopQ || "")}" placeholder="找店家" aria-label="找店家" style="flex:1;min-width:0"><button class="btn" data-shopnew>${ico("plus")}新增店家</button></div>
+    <p class="small muted">記帳時在明細填過的店家、點過的東西都會自動記在這裡；下次選這家，會列出點過的品項和上次的價錢。也可以先把菜單、菜單照片、分店地址放進來。</p>
+    <div class="row-btns" style="margin-top:8px"><input id="shop-q" type="search" value="${esc(ui.shopQ || "")}" placeholder="找店家或地址" aria-label="找店家或地址" style="flex:1;min-width:0"><button class="btn" data-shopnew>${ico("plus")}新增店家</button></div>
     <div id="shop-list">${shopListHTML()}</div>`;
 }
 async function newShop() {
@@ -1394,47 +1406,54 @@ async function newShop() {
   if (!C.findShop(shopIdx(), v)) commit(C.setShop(data, v, {}));
   shopSheet(v);
 }
-// 一家店的面板：改名（同名＝合併）、預設分類、菜單（改價錢、拿掉、加品項）、菜單照片、刪除
-function shopSheet(name0) {
-  let name = name0, thumb = null;
-  openSheet((el, s) => {
+// 一家店的面板：改名（同名＝合併）、預設分類、菜單、菜單照片（好幾張）、分店地址（好幾個）、刪除
+function shopSheet(name0, into = null) {
+  let name = name0;
+  const urls = new Map();            // 照片 id → 縮圖網址（關掉面板時收掉）
+  sheetFor(into)((el, s) => {
     const draw = async () => {
-      const sh = C.findShop(shopIdx(), name) || { name, count: 0, menu: [], photo: false, own: null, cat: "", sub: "" };
+      const sh = C.findShop(shopIdx(), name) || { name, count: 0, menu: [], photos: [], branches: [], own: null, cat: "", sub: "" };
       const own = sh.own, catOpts = data.cats.out.flatMap((c) => [c.name, ...c.subs.map((x) => c.name + "・" + x)]);
       const curCat = own?.cat ? own.cat + (own.sub ? "・" + own.sub : "") : "";
       el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>${esc(name)}</h3><button class="btn text" data-srename>${ico("pencil")}改名</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <p class="small muted" style="margin:0 0 8px">${sh.count ? `去過 ${sh.count} 次・最近 ${mmdd(sh.lastT)}` : "還沒在明細裡記過這家"}</p>
         <div class="field"><label for="s-cat">預設分類</label><select id="s-cat"><option value="">自動（照上次${!own?.cat && sh.cat ? "：" + esc(sh.cat + (sh.sub ? "・" + sh.sub : "")) : ""}）</option>${catOpts.map((x) => `<option${x === curCat ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+        <div class="sec-h"><span>地址（${sh.branches.length}）</span></div>
+        <div class="sm-list">${sh.branches.map((b, i) => `<div class="sm-row br"><span class="t">${b.name ? `<b>${esc(b.name)}</b>` : ""}${esc(b.addr || "（沒有地址）")}${b.url ? `<small>有 Google 地圖連結</small>` : ""}</span>
+          <a class="btn text" href="${esc(mapsHref(b))}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a><button class="icon-btn" data-bedit="${i}" aria-label="改這個地址">${ico("pencil")}</button><button class="icon-btn" data-bdel="${i}" aria-label="刪掉這個地址">${ico("x")}</button></div>`).join("") || `<p class="small muted">還沒有地址。有分店的話可以加好幾個。</p>`}</div>
+        <div class="row-btns" style="margin-top:6px"><button class="btn grow" data-badd>${ico("plus")}加地址（可以貼 Google 地圖網址）</button></div>
         <div class="sec-h"><span>菜單（${sh.menu.length} 樣）</span></div>
         <div class="sm-list">${sh.menu.map((x) => `<div class="sm-row"><span class="t">${esc(x.what)}<small>${[x.count ? `點過 ${x.count} 次` : "", x.mine ? "自己加的" : "記過的"].filter(Boolean).join("・")}</small></span>
           <button class="btn text num" data-sprice="${esc(x.what)}" aria-label="改 ${esc(x.what)} 的價錢">${x.amt ? C.money(x.amt) : "填價錢"}</button><button class="icon-btn" data-shide="${esc(x.what)}" aria-label="拿掉 ${esc(x.what)}">${ico("x")}</button></div>`).join("") || `<p class="small muted">還沒有品項。下面可以自己加，或記帳時在明細填「${esc(name)}」，點過的會自動出現。</p>`}</div>
         <div class="sm-add"><input id="s-what" placeholder="品項，例如：麥克雞塊" maxlength="30" aria-label="品項"><input id="s-amt" placeholder="價錢" inputmode="numeric" aria-label="價錢"><button class="btn" data-sadd>${ico("plus")}加</button></div>
-        <div class="sec-h"><span>菜單照片</span></div>
-        ${sh.photo ? `<button class="sm-photo" data-sphoto aria-label="看大圖">${thumb ? `<img src="${thumb}" alt="">` : "載入中…"}</button>
-          <div class="row-btns"><label class="btn grow">${ico("image")}換一張<input type="file" accept="image/*" id="s-file" hidden></label><button class="btn" data-sphotodel>${ico("trash")}拿掉照片</button></div>`
-          : `<div class="row-btns"><label class="btn grow">${ico("image")}拍照／選圖片<input type="file" accept="image/*" id="s-file" hidden></label></div>`}
-        <p class="small muted">照片只存在這台手機，不會放進備份。</p>
-        ${own ? `<div class="row-btns"><button class="btn danger" data-sdel>${ico("trash")}刪除這家店</button></div><p class="small muted">刪除只會拿掉你自己整理的菜單、照片和分類，以前的紀錄不會動。</p>` : ""}`;
-      if (sh.photo && !thumb) {
-        try { const b = await BGDB.get(photoKey(name)); if (b) { thumb = URL.createObjectURL(b); const box = el.querySelector(".sm-photo"); if (box) box.innerHTML = `<img src="${thumb}" alt="">`; } } catch { /* 讀不到就不顯示 */ }
+        <div class="sec-h"><span>菜單照片（${sh.photos.length}）</span></div>
+        ${sh.photos.length ? `<div class="sm-photos">${sh.photos.map((id, i) => `<div class="ph"><button class="ph-img" data-sphoto="${i}" aria-label="看第 ${i + 1} 張">${urls.get(id) ? `<img src="${urls.get(id)}" alt="">` : ""}</button><button class="ph-x" data-sphotodel="${esc(id)}" aria-label="刪掉第 ${i + 1} 張">${ico("x")}</button></div>`).join("")}</div>` : ""}
+        ${sh.photos.length < 12 ? `<div class="row-btns" style="margin-top:6px"><label class="btn grow">${ico("image")}${sh.photos.length ? "再加照片" : "拍照／選圖片"}<input type="file" accept="image/*" id="s-file" multiple hidden></label></div>` : ""}
+        <p class="small muted">照片只存在這台手機，不會放進備份。一次可以選好幾張，最多 12 張。</p>
+        ${own ? `<div class="row-btns"><button class="btn danger" data-sdel>${ico("trash")}刪除這家店</button></div><p class="small muted">刪除只會拿掉你自己整理的菜單、照片、地址和分類，以前的紀錄不會動。</p>` : ""}`;
+      for (const id of sh.photos) {   // 縮圖：讀過的就留著，沒讀過的讀進來後補上
+        if (urls.has(id)) continue;
+        try { const b = await BGDB.get(photoKey(name, id)); if (b) { urls.set(id, URL.createObjectURL(b)); const i = sh.photos.indexOf(id), box = el.querySelectorAll(".ph-img")[i]; if (box) box.innerHTML = `<img src="${urls.get(id)}" alt="">`; } } catch { /* 讀不到就空著 */ }
       }
     };
-    const upsert = (what, amt) => { const own = (data.shops || []).find((x) => x.name === name), menu = [...(own?.menu || []).filter((x) => x.what !== what), { what, amt, t: Date.now() }]; commit(C.setShop(data, name, { menu, hide: (own?.hide || []).filter((h) => h !== what) })); };
+    const dropUrls = () => { for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); };
+    const upsert = (what, amt) => { const own = ownShop(name), menu = [...(own?.menu || []).filter((x) => x.what !== what), { what, amt, t: Date.now() }]; commit(C.setShop(data, name, { menu, hide: (own?.hide || []).filter((h) => h !== what) })); };
     draw();
-    s.onClose = () => { if (thumb) URL.revokeObjectURL(thumb); };
+    s.onClose = dropUrls;
     el.addEventListener("change", async (e) => {
       if (e.target.id === "s-cat") {
         const [cat, sub = ""] = e.target.value.split("・");
         commit(C.setShop(data, name, cat ? { cat, sub } : { cat: "" })); draw();
       }
-      if (e.target.id === "s-file" && e.target.files?.[0]) {
-        try {
-          const blob = await shrink(await loadImage(e.target.files[0]), 1600);
-          await BGDB.set(blob, photoKey(name));
-          commit(C.setShop(data, name, { photo: true }));
-          if (thumb) URL.revokeObjectURL(thumb);
-          thumb = null; draw(); toast("菜單照片存好了");
-        } catch { toast("存不了這張圖片（可能是無痕模式，或圖片格式不支援）"); }
+      if (e.target.id === "s-file" && e.target.files?.length) {
+        const files = [...e.target.files], have = ownShop(name)?.photos || [], room = 12 - have.length;
+        const added = [];
+        for (const f of files.slice(0, room)) {
+          try { const blob = await shrink(await loadImage(f), 1600), id = C.newId(); await BGDB.set(blob, photoKey(name, id)); added.push(id); } catch { /* 這張存不了就跳過 */ }
+        }
+        if (added.length) commit(C.setShop(data, name, { photos: [...(ownShop(name)?.photos || []), ...added] }));
+        draw();
+        toast(added.length ? `加了 ${added.length} 張菜單照片${files.length > room ? `（最多 12 張，${files.length - room} 張沒加）` : ""}` : "存不了這些圖片（可能是無痕模式，或圖片格式不支援）");
       }
     });
     el.addEventListener("click", async (e) => {
@@ -1445,13 +1464,14 @@ function shopSheet(name0) {
       if (d.srename !== undefined) {
         const v = (await ask("改店名", "改成已經有的店名，就會把兩家合併。", [["no", "取消"], ["ok", "改", "primary"]], name))?.trim();
         if (!v || v === name) return;
-        if (C.findShop(shopIdx(), v) && !(await sure(`把「${name}」合併到「${v}」？`, `以前的紀錄、菜單也會一起改到「${v}」。`, "合併"))) return;
-        const hadPhoto = !!(data.shops || []).find((x) => x.name === name)?.photo, toHas = !!(data.shops || []).find((x) => x.name === v)?.photo;
+        if (C.findShop(shopIdx(), v) && !(await sure(`把「${name}」合併到「${v}」？`, `以前的紀錄、菜單、照片、地址也會一起改到「${v}」。`, "合併"))) return;
+        try {   // 照片搬到新店名底下；合併時兩家都有舊的那張（id "0"），被合併的那張先換個 id
+          const mine = ownShop(name)?.photos || [], theirs = ownShop(v)?.photos || [], ids = [];
+          for (const id of mine) { const nid = theirs.includes(id) ? C.newId() : id, b = await BGDB.get(photoKey(name, id)); if (b) await BGDB.set(b, photoKey(v, nid)); await BGDB.del(photoKey(name, id)); ids.push(nid); }
+          if (mine.length) commit(C.setShop(data, name, { photos: ids }));
+        } catch { /* 照片搬不了就算了 */ }
         commit(C.renameShop(data, name, v));
-        if (hadPhoto) { try { const b = await BGDB.get(photoKey(name)); if (b && !toHas) await BGDB.set(b, photoKey(v)); await BGDB.del(photoKey(name)); } catch { /* 照片搬不了就算了 */ } }
-        name = v;
-        if (thumb) URL.revokeObjectURL(thumb);
-        thumb = null; draw(); toast("改好了"); return;
+        name = v; dropUrls(); draw(); toast("改好了"); return;
       }
       if (d.sprice) {
         const cur = C.findShop(shopIdx(), name)?.menu.find((x) => x.what === d.sprice);
@@ -1460,7 +1480,7 @@ function shopSheet(name0) {
         upsert(d.sprice, Math.max(0, Math.round(Number(v) || 0))); draw(); return;
       }
       if (d.shide) {             // 拿掉：自己加的直接刪；記過的放進「不要再建議」
-        const own = (data.shops || []).find((x) => x.name === name), learned = C.findShop(C.shopIndex(data.items, []), name)?.menu.some((x) => x.what === d.shide);
+        const own = ownShop(name), learned = C.findShop(C.shopIndex(data.items, []), name)?.menu.some((x) => x.what === d.shide);
         commit(C.setShop(data, name, { menu: (own?.menu || []).filter((x) => x.what !== d.shide), hide: learned ? [...(own?.hide || []), d.shide] : own?.hide || [] }));
         draw(); toast(learned ? `之後不會再建議「${d.shide}」，以前的紀錄不變` : "拿掉了"); return;
       }
@@ -1469,30 +1489,99 @@ function shopSheet(name0) {
         if (!what) return toast("先填品項");
         upsert(what, amt); draw(); return;
       }
-      if (d.sphoto !== undefined) return showShopPhoto(name);
-      if (d.sphotodel !== undefined) {
-        try { await BGDB.del(photoKey(name)); } catch { /* 沒有也沒關係 */ }
-        commit(C.setShop(data, name, { photo: false }));
-        if (thumb) URL.revokeObjectURL(thumb);
-        thumb = null; draw(); return;
+      if (d.sphoto !== undefined) return showShopPhoto(name, +d.sphoto);
+      if (d.sphotodel) {
+        if (!(await sure("刪掉這張菜單照片？", "", "刪掉", "danger"))) return;
+        try { await BGDB.del(photoKey(name, d.sphotodel)); } catch { /* 沒有也沒關係 */ }
+        if (urls.has(d.sphotodel)) { URL.revokeObjectURL(urls.get(d.sphotodel)); urls.delete(d.sphotodel); }
+        commit(C.setShop(data, name, { photos: (ownShop(name)?.photos || []).filter((x) => x !== d.sphotodel) })); draw(); return;
       }
-      if (d.sdel !== undefined && (await sure(`刪除「${name}」？`, "只會拿掉你自己整理的菜單、照片和分類，以前的紀錄不會動。", "刪除", "danger"))) {
-        try { await BGDB.del(photoKey(name)); } catch { /* 沒有也沒關係 */ }
+      if (d.badd !== undefined) return branchForm(s, name, -1);
+      if (d.bedit !== undefined) return branchForm(s, name, +d.bedit);
+      if (d.bdel !== undefined) {
+        const list = [...(ownShop(name)?.branches || [])], b = list[+d.bdel];
+        if (!b || !(await sure("刪掉這個地址？", [b.name, b.addr].filter(Boolean).join("・"), "刪掉", "danger"))) return;
+        list.splice(+d.bdel, 1); commit(C.setShop(data, name, { branches: list })); draw(); return;
+      }
+      if (d.sdel !== undefined && (await sure(`刪除「${name}」？`, "只會拿掉你自己整理的菜單、照片、地址和分類，以前的紀錄不會動。", "刪除", "danger"))) {
+        try { await BGDB.del(...(ownShop(name)?.photos || []).map((id) => photoKey(name, id))); } catch { /* 沒有也沒關係 */ }
         commit(C.delShop(data, name)); s.close();
       }
     });
   });
 }
-// 全螢幕看菜單照片（兩指可以放大，點右上角關掉）
-async function showShopPhoto(name) {
-  let blob = null;
-  try { blob = await BGDB.get(photoKey(name)); } catch { /* 下面說 */ }
-  if (!blob) return toast("這台手機裡找不到這家的菜單照片");
-  const url = URL.createObjectURL(blob), v = document.createElement("div");
+// 加／改一個分店地址（在同一個面板裡換過去，存好或取消回到店家面板）
+function branchForm(s, name, idx) {
+  const cur = idx >= 0 ? ownShop(name)?.branches?.[idx] : null;
+  const st = { name: cur?.name || "", addr: cur?.addr || "", url: cur?.url || "", msg: "", busy: false, lastUrl: "" };
+  s.swap((el, s2) => {
+    const draw = () => {
+      el.innerHTML = `<div class="sheet-h"><button class="icon-btn" data-bback aria-label="回到店家">${ico("chevron-left")}</button><h3>${cur ? "改地址" : "加地址"}・${esc(name)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+        <div class="field"><label for="b-url">Google 地圖網址</label><input id="b-url" value="${esc(st.url)}" placeholder="貼上分享的網址，例如 https://maps.app.goo.gl/…" inputmode="url" autocomplete="off"></div>
+        <p class="small ${/查不到|連不上|不是/.test(st.msg) ? "bad-t" : "muted"}" id="b-msg" style="margin:-4px 0 8px">${esc(st.msg || "在 Google 地圖按「分享」→「複製連結」，貼到這裡就會自動填地址。")}</p>
+        ${st.url ? `<div class="row-btns" style="margin:0 0 8px"><button class="btn" data-blook${st.busy ? " disabled" : ""}>${ico("search")}${st.busy ? "查地址中…" : "從網址查地址"}</button></div>` : ""}
+        <div class="field"><label for="b-name">分店名</label><input id="b-name" value="${esc(st.name)}" maxlength="20" placeholder="選填，例如：中山店"></div>
+        <div class="field"><label for="b-addr">地址</label><input id="b-addr" value="${esc(st.addr)}" maxlength="120" placeholder="例如：台北市中山區…"></div>
+        <div class="row-btns"><button class="btn grow" data-bback>取消</button><button class="btn primary grow" data-bsave>存起來</button></div>`;
+    };
+    const look = async (force = false) => {
+      const url = st.url.trim();
+      if (!url || st.busy || (!force && (st.addr || url === st.lastUrl))) return;
+      st.busy = true; st.lastUrl = url; st.msg = "查地址中…"; draw();
+      const r = await mapLookup(url);
+      st.busy = false;
+      if (r?.ok && (r.addr || r.name)) {
+        if (r.addr) st.addr = r.addr;
+        if (r.name && !st.name) st.name = r.name.replace(name, "").trim() || "";
+        st.msg = r.addr ? "找到了，地址已經填好（可以再改）。" : "只找到店名，地址請自己打。";
+      } else st.msg = `查不到地址（${r?.err || "不知道為什麼"}），請自己打；網址會照樣存起來。`;
+      draw();
+    };
+    draw();
+    el.addEventListener("input", (e) => { const k = { "b-url": "url", "b-name": "name", "b-addr": "addr" }[e.target.id]; if (k) st[k] = e.target.value; });
+    el.addEventListener("change", (e) => { if (e.target.id === "b-url") { draw(); look(); } });
+    el.addEventListener("paste", (e) => { if (e.target.id === "b-url") setTimeout(() => { st.url = e.target.value; draw(); look(); }, 0); });
+    el.addEventListener("click", (e) => {
+      const t = e.target.closest("button");
+      if (!t) return;
+      const d = t.dataset;
+      if (d.close !== undefined) return s2.close();
+      if (d.bback !== undefined) return shopSheet(name, s2);
+      if (d.blook !== undefined) return look(true);
+      if (d.bsave !== undefined) {
+        const url = st.url.trim(), b = { name: st.name.trim(), addr: st.addr.trim(), url: /^https?:\/\//i.test(url) ? url : "" };
+        if (!b.addr && !b.url) return toast("至少要有地址或 Google 地圖網址");
+        if (url && !b.url) return toast("網址要是 https:// 開頭的");
+        const list = [...(ownShop(name)?.branches || [])];
+        if (idx >= 0 && idx < list.length) list[idx] = b; else list.push(b);
+        commit(C.setShop(data, name, { branches: list }));
+        toast(cur ? "地址改好了" : "地址加好了");
+        return shopSheet(name, s2);
+      }
+    });
+  });
+}
+// 全螢幕看菜單照片：左右滑或按 ‹ › 換張，兩指可以放大，點右上角關掉
+async function showShopPhoto(name, start = 0) {
+  const ids = ownShop(name)?.photos || [];
+  const blobs = [];
+  for (const id of ids) { try { const b = await BGDB.get(photoKey(name, id)); if (b) blobs.push(b); } catch { /* 讀不到就跳過 */ } }
+  if (!blobs.length) return toast("這台手機裡找不到這家的菜單照片");
+  const urls = blobs.map((b) => URL.createObjectURL(b)), v = document.createElement("div");
+  let i = Math.min(Math.max(0, start), urls.length - 1);
   v.className = "photo-view";
-  v.innerHTML = `<div class="pv-h"><b>${esc(name)} 的菜單</b><button class="icon-btn" aria-label="關閉">${ico("x")}</button></div><div class="pv-img"><img src="${url}" alt="${esc(name)} 的菜單"></div>`;
-  const close = () => { v.remove(); URL.revokeObjectURL(url); };
-  v.querySelector("button").addEventListener("click", close);
+  const draw = () => {
+    v.innerHTML = `<div class="pv-h"><b>${esc(name)} 的菜單${urls.length > 1 ? `　<span class="num">${i + 1} / ${urls.length}</span>` : ""}</b><button class="icon-btn" data-pvx aria-label="關閉">${ico("x")}</button></div>
+      <div class="pv-img"><img src="${urls[i]}" alt="${esc(name)} 的菜單第 ${i + 1} 張"></div>
+      ${urls.length > 1 ? `<button class="pv-nav prev" data-pvd="-1" aria-label="上一張"${i ? "" : " disabled"}>${ico("chevron-left")}</button><button class="pv-nav next" data-pvd="1" aria-label="下一張"${i < urls.length - 1 ? "" : " disabled"}>${ico("chevron-right")}</button>` : ""}`;
+  };
+  const go2 = (n) => { const j = i + n; if (j >= 0 && j < urls.length) { i = j; draw(); } };
+  const close = () => { v.remove(); urls.forEach((u) => URL.revokeObjectURL(u)); };
+  draw();
+  v.addEventListener("click", (e) => { const t = e.target.closest("button"); if (!t) return; if (t.dataset.pvx !== undefined) close(); if (t.dataset.pvd) go2(+t.dataset.pvd); });
+  let sx = null;   // 一根手指左右滑換張（兩指在放大就不換）
+  v.addEventListener("touchstart", (e) => { sx = e.touches.length === 1 && (visualViewport?.scale || 1) <= 1.01 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive: true });
+  v.addEventListener("touchend", (e) => { if (!sx) return; const t = e.changedTouches[0], dx = t.clientX - sx[0], dy = t.clientY - sx[1]; sx = null; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) go2(dx < 0 ? 1 : -1); }, { passive: true });
   document.body.append(v);
 }
 
@@ -2279,7 +2368,7 @@ async function onClick(e) {
   if (d.clearall !== undefined) {
     const v = await ask("真的要清除全部資料？", "請輸入「清除」兩個字確認。", [["no", "取消"], ["ok", "清除全部", "danger"]], "");
     if (v?.trim() !== "清除") { if (v !== null) toast("沒有清除（要輸入「清除」）"); return; }
-    try { await BGDB.del("bg", "bg-orig", "fab", "fab-orig", ...(data.shops || []).map((x) => photoKey(x.name))); } catch { /* 沒有也沒關係 */ }
+    try { await BGDB.del("bg", "bg-orig", "fab", "fab-orig", ...(data.shops || []).flatMap((x) => (x.photos || []).map((id) => photoKey(x.name, id)))); } catch { /* 沒有也沒關係 */ }
     commit(C.emptyData(), { quiet: true }); applyTheme(); showBgImg(); showFab(); ui.period = periodNow(); toast("全部清除了"); return go("home");
   }
 }

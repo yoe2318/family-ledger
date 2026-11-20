@@ -484,6 +484,7 @@ body.has-bgimg .app:not(.home) > .card > .row-btns:last-child { margin-bottom: 0
 .sm-add input { min-width: 0; }
 .sm-add input:first-child { flex: 2; }
 .sm-add input:nth-child(2) { flex: 1; }
+/* （舊的單張照片樣式，留著不影響） */
 .sm-photo { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); overflow: hidden; color: var(--muted); }
 .sm-photo img { display: block; width: 100%; height: 220px; object-fit: cover; }
 .photo-view { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / .92); display: grid; grid-template-rows: auto 1fr; color: #fff; }
@@ -519,3 +520,21 @@ button.stat { cursor: pointer; color: inherit; font: inherit; }
 .days-x span { overflow: visible; white-space: nowrap; }
 .trend .col { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .drill .item .amt small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; text-align: right; }
+
+/* 店家：多張菜單照片、分店地址 */
+.sm-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sm-photos .ph { position: relative; aspect-ratio: 3 / 4; }
+.sm-photos .ph-img { width: 100%; height: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); overflow: hidden; }
+.sm-photos .ph-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sm-photos .ph-x { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgb(0 0 0 / .55); color: #fff; display: grid; place-items: center; padding: 0; }
+.sm-photos .ph-x .ico { width: 14px; height: 14px; }
+.sm-row.br .t b { display: block; font-weight: 700; }
+.sm-row.br a.btn { text-decoration: none; white-space: nowrap; }
+.sm-row.br a.btn .ico { width: 16px; height: 16px; }
+.bad-t { color: var(--bad); }
+.photo-view .pv-img { position: relative; }
+.photo-view .pv-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / .18); color: #fff; display: grid; place-items: center; z-index: 1; }
+.photo-view .pv-nav.prev { left: max(8px, env(safe-area-inset-left)); }
+.photo-view .pv-nav.next { right: max(8px, env(safe-area-inset-right)); }
+.photo-view .pv-nav:disabled { opacity: .25; }
+.photo-view .pv-h .num { font-family: var(--font-mono); font-weight: 400; opacity: .8; }

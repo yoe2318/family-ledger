@@ -93,5 +93,17 @@ eq(LG.describe(E("b", ["a"], 120), nm), "李宸yo 欠 劉芳慈 120", "說明1")
 eq(LG.describe(E("a", ["a", "b", "c"], 100), nm), "李宸yo 付 100，3 人平分（每人 33，零頭算 李宸yo）", "說明2");
 eq(LG.describe(E("a", ["b"], 500, "pay"), nm), "李宸yo 還 劉芳慈 500", "說明3");
 
+// ---- Google 地圖網址
+eq([LG.isMapHost("https://maps.app.goo.gl/AbC123"), LG.isMapHost("https://www.google.com/maps/place/x"), LG.isMapHost("https://www.google.com.tw/maps/@1,2,3z"), LG.isMapHost("https://maps.google.com/?q=x"), LG.isMapHost("https://goo.gl/maps/xyz")], [true, true, true, true, true], "地圖網址：接受");
+eq([LG.isMapHost("https://evil.com/maps"), LG.isMapHost("https://www.google.com/search?q=x"), LG.isMapHost("http://169.254.169.254/"), LG.isMapHost("javascript:alert(1)"), LG.isMapHost("")], [false, false, false, false, false], "地圖網址：別的網站不收");
+const PU = LG.parseMapUrl;
+eq(PU("https://www.google.com/maps/place/%E5%85%AB%E6%96%B9%E9%9B%B2%E9%9B%86+%E4%B8%AD%E5%B1%B1%E5%BA%97/@25.05,121.52,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x1!8m2!3d25.0512!4d121.5233"),
+  { name: "八方雲集 中山店", lat: 25.0512, lng: 121.5233, query: "" }, "地圖網址：店名＋店的座標（!3d!4d 優先）");
+eq(PU("https://www.google.com/maps/@25.0339,121.5644,17z"), { name: "", lat: 25.0339, lng: 121.5644, query: "" }, "地圖網址：只有畫面中心");
+eq(PU("https://maps.google.com/maps?q=%E5%8F%B0%E5%8C%97%E5%B8%82%E4%BF%A1%E7%BE%A9%E5%8D%80"), { name: "", lat: null, lng: null, query: "台北市信義區" }, "地圖網址：q= 地址");
+eq(PU("https://maps.google.com/?q=25.1,121.5"), { name: "", lat: 25.1, lng: 121.5, query: "" }, "地圖網址：q= 座標");
+eq(PU("https://consent.google.com/ml?continue=https%3A%2F%2Fwww.google.com%2Fmaps%2Fplace%2FA%2F%4025.1%2C121.2%2C17z&gl=TW"), { name: "A", lat: 25.1, lng: 121.2, query: "" }, "地圖網址：同意頁包起來的");
+eq(PU("https://maps.app.goo.gl/AbC123"), { name: "", lat: null, lng: null, query: "" }, "地圖網址：短網址本身什麼都沒有");
+
 console.log(bad ? `✗ ${bad}／${n} 項失敗` : `✓ ${n} 項全部通過`);
 process.exit(bad ? 1 : 0);

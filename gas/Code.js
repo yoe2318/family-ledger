@@ -28,6 +28,7 @@ function doPost(e) {
     }
     return ContentService.createTextOutput("ok");
   }
+  if (body.op === "map") return json_(mapLookup_(body.url));        // 記帳 App 的店家地址：貼 Google 地圖網址查地址（不用連動碼）
   return json_(withLock_(function () { return api_(body); }));   // 記帳 App 來的
 }
 function doGet() { return json_({ ok: true, app: "family-ledger friends" }); }
@@ -326,7 +327,46 @@ function api_(q) {
   };
 }
 
+// ------------------------------------------------------------------ Google 地圖網址 → 地址
+// 短網址（maps.app.goo.gl）一步一步跟著轉址到長網址，從長網址找座標或名稱，再用 Google 的地圖服務換成地址
+function mapLookup_(url) {
+  url = String(url || "").trim().slice(0, 2000);
+  if (!LG.isMapHost(url)) return { ok: false, err: "這不是 Google 地圖的網址" };
+  var u = url;
+  for (var i = 0; i < 6; i++) {
+    var p = LG.parseMapUrl(u);
+    if (p.lat !== null || p.name || p.query) break;            // 已經是長網址了
+    var r = UrlFetchApp.fetch(u, { followRedirects: false, muteHttpExceptions: true });
+    var h = r.getHeaders(), loc = h.Location || h.location;
+    if (!loc) break;
+    if (!LG.isMapHost(loc)) break;
+    u = loc;
+  }
+  var info = LG.parseMapUrl(u), addr = "", lat = info.lat, lng = info.lng;
+  var geo = Maps.newGeocoder().setLanguage("zh-TW").setRegion("tw");
+  try {
+    if (lat !== null) {
+      var rv = geo.reverseGeocode(lat, lng);
+      if (rv && rv.results && rv.results.length) addr = rv.results[0].formatted_address || "";
+    }
+    if (!addr && (info.query || info.name)) {
+      var g = geo.geocode(info.query || info.name);
+      if (g && g.results && g.results.length) {
+        addr = g.results[0].formatted_address || "";
+        if (lat === null && g.results[0].geometry) { lat = g.results[0].geometry.location.lat; lng = g.results[0].geometry.location.lng; }
+      }
+    }
+  } catch (err) { console.error(err && err.stack || err); }
+  if (!addr && !info.name) return { ok: false, err: "查不到" };
+  return { ok: true, name: info.name && info.name !== addr ? info.name : "", addr: addr, lat: lat, lng: lng };
+}
+
 // ------------------------------------------------------------------ 在 Apps Script 編輯器裡手動執行的
+// 部署新版之前先跑一次：第一次會要你同意「地圖」權限；看「執行記錄」有沒有印出地址
+function testMapLookup() {
+  console.log(JSON.stringify(mapLookup_("https://www.google.com/maps/place/%E5%8F%B0%E5%8C%97101/@25.0339639,121.5644722,17z")));
+}
+
 // 用「試算表的副本」跑一遍搬家和幾個指令，不碰正式資料。看「執行記錄」。
 function testWithCopy() {   // 用試算表副本測試
   var copy = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty("SHEET_ID")).copy("Line _記帳（測試副本，可刪）");
