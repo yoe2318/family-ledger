@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.7.5";
+const VERSION = "1.7.6";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -1483,21 +1483,35 @@ function newShop() {
           list.push({ name: list.length ? st.branch : "", addr: st.addr, url: /^https?:\/\//i.test(url) ? url : "" });
           commit(C.setShop(data, v, { branches: list }));
         }
-        shopSheet(v, s);
+        shopSheet(v, s, true);
       }
     });
   });
 }
 // 一家店的面板：改名（同名＝合併）、預設分類、菜單、菜單照片（好幾張）、分店地址（好幾個）、刪除
-function shopSheet(name0, into = null) {
-  let name = name0;
+// edit＝false：先看（乾淨的資料）；按「編輯」才出現各種改的按鈕
+function shopSheet(name0, into = null, edit = false) {
+  let name = name0, editing = edit;
   const urls = new Map();            // 照片 id → 縮圖網址（關掉面板時收掉）
   sheetFor(into)((el, s) => {
     const draw = async () => {
       const sh = C.findShop(shopIdx(), name) || { name, count: 0, menu: [], photos: [], branches: [], own: null, cat: "", sub: "" };
       const own = sh.own, catOpts = data.cats.out.flatMap((c) => [c.name, ...c.subs.map((x) => c.name + "・" + x)]);
       const curCat = own?.cat ? own.cat + (own.sub ? "・" + own.sub : "") : "";
-      el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>${esc(name)}</h3><button class="btn text" data-srename>${ico("pencil")}改名</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      const thumbs = sh.photos.length ? `<div class="sm-photos">${sh.photos.map((id, i) => `<div class="ph"><button class="ph-img" data-sphoto="${i}" aria-label="看第 ${i + 1} 張">${urls.get(id) ? `<img src="${urls.get(id)}" alt="">` : ""}</button>${editing ? `<button class="ph-x" data-sphotodel="${esc(id)}" aria-label="刪掉第 ${i + 1} 張">${ico("x")}</button>` : ""}</div>`).join("")}</div>` : "";
+      if (!editing) {   // 看的畫面：只有資料，沒有改的按鈕
+        const catTxt = sh.cat ? sh.cat + (sh.sub ? "・" + sh.sub : "") + (own?.cat ? "" : "（照上次）") : "";
+        el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>${esc(name)}</h3><button class="btn text" data-sedit>${ico("pencil")}編輯</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+          <div class="detail">
+            ${sh.tag ? `<div class="dt-row"><span class="k">類別</span><span class="v">${esc(sh.tag)}</span></div>` : ""}
+            ${catTxt ? `<div class="dt-row"><span class="k">分類</span><span class="v">${esc(catTxt)}</span></div>` : ""}
+            <div class="dt-row"><span class="k">去過</span><span class="v">${sh.count ? `${sh.count} 次・最近 ${mmdd(sh.lastT)}` : "還沒記過"}</span></div>
+          </div>
+          ${sh.branches.length ? `<div class="sec-h"><span>地址</span></div><div class="sm-list">${sh.branches.map((b) => `<div class="sm-row br"><span class="t">${b.name ? `<b>${esc(b.name)}</b>` : ""}${esc(b.addr || "（沒有地址）")}</span><a class="btn text" href="${esc(mapsHref(b))}" target="_blank" rel="noopener">${ico("map-pin")}地圖</a></div>`).join("")}</div>` : ""}
+          ${sh.menu.length ? `<div class="sec-h"><span>菜單</span></div><div class="dt-lines">${sh.menu.map((x) => `<div class="dt-line"><span>${esc(x.what)}</span><b class="num">${x.amt ? C.money(x.amt) : ""}</b></div>`).join("")}</div>` : ""}
+          ${thumbs ? `<div class="sec-h"><span>菜單照片</span></div>${thumbs}` : ""}
+          ${!sh.branches.length && !sh.menu.length && !thumbs ? `<p class="small muted" style="margin:12px 0">還沒有地址、菜單或照片。按右上角「編輯」加進來。</p>` : ""}`;
+      } else el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>${esc(name)}</h3><button class="btn text" data-srename>${ico("pencil")}改名</button><button class="btn text" data-sdone>${ico("check")}完成</button><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
         <p class="small muted" style="margin:0 0 8px">${sh.count ? `去過 ${sh.count} 次・最近 ${mmdd(sh.lastT)}` : "還沒在明細裡記過這家"}</p>
         <div class="field"><label for="s-cat">預設分類</label><select id="s-cat"><option value="">自動（照上次${!own?.cat && sh.cat ? "：" + esc(sh.cat + (sh.sub ? "・" + sh.sub : "")) : ""}）</option>${catOpts.map((x) => `<option${x === curCat ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
         <div class="field"><label for="s-tag">店家類別</label><select id="s-tag"><option value="">未分類</option>${C.shopTags(data.shops || []).map((t) => `<option${t === sh.tag ? " selected" : ""}>${esc(t)}</option>`).join("")}<option value="__new">＋新增類別…</option></select></div>
@@ -1510,7 +1524,7 @@ function shopSheet(name0, into = null) {
           <button class="btn text num" data-sprice="${esc(x.what)}" aria-label="改 ${esc(x.what)} 的價錢">${x.amt ? C.money(x.amt) : "填價錢"}</button><button class="icon-btn" data-shide="${esc(x.what)}" aria-label="拿掉 ${esc(x.what)}">${ico("x")}</button></div>`).join("") || `<p class="small muted">還沒有品項。下面可以自己加，或記帳時在明細填「${esc(name)}」，點過的會自動出現。</p>`}</div>
         <div class="sm-add"><input id="s-what" placeholder="品項，例如：麥克雞塊" maxlength="30" aria-label="品項"><input id="s-amt" placeholder="價錢" inputmode="numeric" aria-label="價錢"><button class="btn" data-sadd>${ico("plus")}加</button></div>
         <div class="sec-h"><span>菜單照片（${sh.photos.length}）</span></div>
-        ${sh.photos.length ? `<div class="sm-photos">${sh.photos.map((id, i) => `<div class="ph"><button class="ph-img" data-sphoto="${i}" aria-label="看第 ${i + 1} 張">${urls.get(id) ? `<img src="${urls.get(id)}" alt="">` : ""}</button><button class="ph-x" data-sphotodel="${esc(id)}" aria-label="刪掉第 ${i + 1} 張">${ico("x")}</button></div>`).join("")}</div>` : ""}
+        ${thumbs}
         ${sh.photos.length < 12 ? `<div class="row-btns" style="margin-top:6px"><label class="btn grow">${ico("image")}${sh.photos.length ? "再加照片" : "拍照／選圖片"}<input type="file" accept="image/*" id="s-file" multiple hidden></label></div>` : ""}
         <p class="small muted">照片只存在這台手機，不會放進備份。一次可以選好幾張，最多 12 張。</p>
         <div class="row-btns"><button class="btn danger" data-sdel>${ico("trash")}刪除這家店</button></div><p class="small muted">刪除會拿掉這家店的菜單、照片、地址和分類，記帳時也不會再建議它；以前記帳裡的明細不會動。</p>`;
@@ -1549,6 +1563,8 @@ function shopSheet(name0, into = null) {
       if (!t) return;
       const d = t.dataset;
       if (d.close !== undefined) return s.close();
+      if (d.sedit !== undefined) { editing = true; return draw(); }
+      if (d.sdone !== undefined) { editing = false; return draw(); }
       if (d.srename !== undefined) {
         const v = (await ask("改店名", "改成已經有的店名，就會把兩家合併。", [["no", "取消"], ["ok", "改", "primary"]], name))?.trim();
         if (!v || v === name) return;
@@ -1649,7 +1665,7 @@ function branchForm(s, name, idx) {
       if (!t) return;
       const d = t.dataset;
       if (d.close !== undefined) return s2.close();
-      if (d.bback !== undefined) return shopSheet(name, s2);
+      if (d.bback !== undefined) return shopSheet(name, s2, true);
       if (d.blook !== undefined) return look(true);
       if (d.find !== undefined) return runFind(st, `${name} ${st.name} ${st.area || ""}`, draw);
       if (d.cpick !== undefined) {
@@ -1665,7 +1681,7 @@ function branchForm(s, name, idx) {
         if (idx >= 0 && idx < list.length) list[idx] = b; else list.push(b);
         commit(C.setShop(data, name, { branches: list }));
         toast(cur ? "地址改好了" : "地址加好了");
-        return shopSheet(name, s2);
+        return shopSheet(name, s2, true);
       }
     });
   });
