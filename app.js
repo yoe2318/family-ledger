@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.8.0";
+const VERSION = "1.8.1";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -310,7 +310,11 @@ const sheets = [];
 let skipPop = 0;
 window.addEventListener("popstate", (e) => {
   if (skipPop) { skipPop--; return; }
-  if (sheets.length) { sheets.pop().close(true); return; }
+  if (sheets.length) {
+    const top = sheets[sheets.length - 1];
+    if (top.dirty?.()) { history.pushState({ ...(history.state || {}), sheet: true }, ""); confirmLeave(top); return; }   // 記到一半：先擋下來問
+    sheets.pop().close(true); return;
+  }
   const s = e.state || {};
   ui.tab = s.tab || "home"; ui.more = s.more || null; ui.fg = s.fg || null; ui.search = null;
   render();
@@ -335,7 +339,7 @@ function openSheet(build) {
     swap(build) {
       const n = document.createElement("div");
       n.className = "sheet"; n.setAttribute("role", "dialog"); n.setAttribute("aria-modal", "true");
-      el.replaceWith(n); el = s.el = n; s.onClose = null;
+      el.replaceWith(n); el = s.el = n; s.onClose = null; s.dirty = null;
       build(n, s);
       return s;
     },
@@ -349,9 +353,19 @@ function openSheet(build) {
   // 點選單外面＝關掉：等「點完」(click) 才關，這一下就被背景吃掉，不會又點到後面的按鈕
   let downOnBack = false;
   back.addEventListener("pointerdown", (e) => { downOnBack = e.target === back; });
-  back.addEventListener("click", (e) => { if (e.target === back && downOnBack) { e.preventDefault(); e.stopPropagation(); s.close(); } downOnBack = false; });
+  back.addEventListener("click", (e) => { if (e.target === back && downOnBack) { e.preventDefault(); e.stopPropagation(); if (s.dirty?.()) confirmLeave(s); else s.close(); } downOnBack = false; });
   build(el, s);
   return s;
+}
+// 記到一半按返回鍵或點外面：問要不要離開（按「繼續記」或再按返回＝留下）
+async function confirmLeave(s) {
+  if (s._asking) return;
+  s._asking = true;
+  const v = await ask("還沒存，要離開嗎？", "剛剛填的金額、明細會不見。", [["leave", "不存，離開", "danger"], ["stay", "繼續記", "primary"]]);
+  s._asking = false;
+  if (v !== "leave") return;
+  for (let i = 0; i < 20 && skipPop; i++) await new Promise((r) => setTimeout(r, 25));   // 等問題框的「上一頁」處理完，再關這個
+  s.close();
 }
 // 問一個問題：buttons＝[[值, 文字, "primary"|"danger"]]；回傳按的值（關掉＝null）
 function ask(title, text, buttons, input = null) {
@@ -516,7 +530,11 @@ function bindLines(el, st, draw) {
     const t = e.target.closest("[data-ladd], [data-lrm], [data-shopq], [data-lpick], [data-lsame], [data-lmore], [data-lphoto], [data-lq]");
     if (!t) return;
     const d = t.dataset, str = (v) => (v ? String(v) : "");
-    if (d.ladd !== undefined) { st.lines.push(blankLine()); draw(); el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="shop"]`)?.focus(); return; }
+    if (d.ladd !== undefined) {   // 新的一列：帶入上一列的店家，直接打「吃了什麼」
+      const prev = [...st.lines].reverse().find((x) => x.shop.trim())?.shop || "";
+      st.lines.push({ ...blankLine(), shop: prev }); draw();
+      el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="${prev ? "what" : "shop"}"]`)?.focus(); return;
+    }
     if (d.lrm !== undefined) { st.lines.splice(+d.lrm, 1); draw(); sync(); return; }
     if (d.shopq) {               // 常去的店家：最後一列店家還空著就填進去，不然新增一列
       const last = st.lines[st.lines.length - 1];
@@ -595,7 +613,11 @@ function openForm(item = null, preset = {}, into = null) {
     f.cat = sh.cat; f.sub = C.subParts(sh.sub).filter((x) => c.subs.includes(x)).join("＋");
     redraw(); toast(`已照「${name}」帶入：${f.cat}${f.sub ? "・" + f.sub : ""}`);
   };
+  const snap = () => JSON.stringify([f.type, f.expr, linesOf(f), (f.note || "").trim(), f.date]);
+  let snap0 = "";
   sheetFor(into)((el, s) => {
+    snap0 = snap0 || snap();
+    s.dirty = () => snap() !== snap0;   // 有改過（新增：有填東西）才問
     el._kpHidden = true;               // 完整表單：鍵盤先收著，點金額或「打開鍵盤」才出來
     const draw = () => {
       const subs = catOf(f.type, f.cat)?.subs || [];
@@ -658,6 +680,7 @@ function openForm(item = null, preset = {}, into = null) {
 function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal = false }) {
   const st = { expr: "", sub: sub || (meal && type === "out" ? C.mealByTime(catOf(type, cat)?.subs || []) : ""), note, date: today(), lines: [] };
   openSheet((el, s) => {
+    s.dirty = () => !!(String(st.expr || "").trim() || linesOf(st).length || st.note.trim() !== (note || "").trim());
     const subsOf = () => catOf(type, cat)?.subs || [];
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><h3>${esc(title || `${pay ? pay + "・" : ""}${cat}`)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
