@@ -800,6 +800,34 @@ export function removeShop(data, name, now = Date.now()) {
 export const findShop = (index, name) => index.find((s) => s.name === String(name ?? "").trim()) || null;
 // 常去的：次數多的在前，一樣多比最近一次
 export const topShops = (index, n = 5) => index.filter((s) => s.count > 0).sort((a, b) => b.count - a.count || b.lastT - a.lastT).slice(0, n);
+// 現在是哪個時段（早餐／午餐／點心／晚餐／宵夜）：0～4；半夜 0～5 點算宵夜
+export function mealSlot(when = new Date()) {
+  const m = when.getHours() * 60 + when.getMinutes();
+  if (m < MEAL_TIMES[0][0]) return MEAL_TIMES.length - 1;
+  let k = 0;
+  MEAL_TIMES.forEach(([t], i) => { if (m >= t) k = i; });
+  return k;
+}
+// 記帳時上面那排店家：這個時段常去的優先，再看總次數、最近兩週有沒有去
+export function shopsForNow(items = [], index = [], now = new Date(), n = 8) {
+  const slot = mealSlot(now), hits = new Map();
+  for (const it of items) {
+    if (!it?.t || !Array.isArray(it.lines)) continue;
+    if (mealSlot(new Date(it.t)) !== slot) continue;
+    for (const name of new Set(it.lines.map((l) => l.shop).filter(Boolean))) hits.set(name, (hits.get(name) || 0) + 1);
+  }
+  const recent = (s) => (now.getTime() - (s.lastT || 0) < 14 * 86400000 ? 2 : 0);
+  const score = (s) => (hits.get(s.name) || 0) * 3 + s.count + recent(s);
+  return index.filter((s) => s.count > 0 || hits.has(s.name)).sort((a, b) => score(b) - score(a) || b.lastT - a.lastT).slice(0, n);
+}
+// 打店家打到一半：店名或地址裡有這幾個字的都列出來（開頭就對到的排前面，再看次數）
+export function matchShops(index = [], q = "", n = 12) {
+  q = String(q ?? "").trim().toLowerCase();
+  if (!q) return [];
+  const hay = (s) => [s.name, ...(s.branches || []).map((b) => (b.name || "") + (b.addr || ""))].join(" ").toLowerCase();
+  return index.filter((s) => hay(s).includes(q))
+    .sort((a, b) => (b.name.toLowerCase().startsWith(q) - a.name.toLowerCase().startsWith(q)) || b.count - a.count || b.lastT - a.lastT).slice(0, n);
+}
 // 改店名（改成已經有的名字＝合併）：紀錄的明細一起改；自己整理的菜單合併
 export function renameShop(data, from, to) {
   to = String(to ?? "").trim().slice(0, 20);

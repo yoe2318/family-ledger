@@ -368,5 +368,18 @@ eq("分店名：地址有樓層", C.branchFromPlace("110台北市信義區信義
   eq("今天的營業時間", [C.todayHours(h, new Date(2026, 10, 24)), C.todayHours(h, new Date(2026, 10, 23)), C.todayHours(h, new Date(2026, 10, 27)), C.todayHours([])], ["06:00 – 14:00", "公休", "", ""]);
   eq("全天營業不算公休", C.closedDays(["星期一: 24 小時營業"]), []);
 }
+// 記帳時的店家建議：時段、打字找
+{
+  const at = (h) => new Date(2026, 10, 20, h, 0).getTime();
+  const it = (shop, h, id) => ({ id, type: "out", amt: 50, cat: "餐飲", date: "2026-11-20", t: at(h), lines: [{ shop, what: "a", amt: 50 }] });
+  const items = [it("麥味登", 8, 1), it("麥味登", 8, 2), it("拉麵店", 19, 3), it("拉麵店", 19, 4), it("拉麵店", 19, 5), it("全家", 15, 6)];
+  const idx = C.shopIndex(items, C.cleanShops([{ name: "麥當勞", branches: [{ addr: "嘉義縣民雄鄉建國路一段18號" }] }]));
+  eq("時段：早上 8 點、晚上 7 點、半夜 2 點", [C.mealSlot(new Date(2026, 0, 1, 8)), C.mealSlot(new Date(2026, 0, 1, 19)), C.mealSlot(new Date(2026, 0, 1, 2))], [0, 3, 4]);
+  eq("早上：早餐常去的排第一", C.shopsForNow(items, idx, new Date(2026, 10, 21, 8, 30), 3).map((s) => s.name)[0], "麥味登");
+  eq("晚上：晚餐常去的排第一", C.shopsForNow(items, idx, new Date(2026, 10, 21, 19, 0), 3).map((s) => s.name)[0], "拉麵店");
+  eq("打「麥」：兩家都出來，沒去過的也有", C.matchShops(idx, "麥").map((s) => s.name).sort(), ["麥味登", "麥當勞"]);
+  eq("打地址裡的字也找得到", C.matchShops(idx, "民雄").map((s) => s.name), ["麥當勞"]);
+  eq("空的不列", C.matchShops(idx, " "), []);
+}
 console.log(fail ? `✗ ${fail} 項沒過（${pass} 項通過）` : `✓ ${pass} 項全部通過`);
 process.exit(fail ? 1 : 0);

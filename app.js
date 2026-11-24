@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.8.1";
+const VERSION = "1.8.2";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -486,9 +486,17 @@ const blankLine = () => ({ shop: "", what: "", amt: "" });
 // 店家資料（從紀錄學的＋自己整理的），每次用都重算（紀錄改了就跟著變）
 const shopIdx = () => C.shopIndex(data.items, data.shops || []);
 // 某一列明細下面的菜單：跟上次一樣、看菜單照片、點過的品項（點一下填品名和價錢）
-function lnMenu(idx, l, i, all = false) {
+function lnMenu(idx, l, i, all = false, q = "") {
   const s = C.findShop(idx, l.shop);
-  if (!s) return "";
+  if (!s) {                    // 店家打到一半：列出符合的店，點一下填好
+    const m = C.matchShops(idx, l.shop, 12);
+    return m.map((x) => `<button class="chip" data-lshop="${i}" data-name="${esc(x.name)}">${ico("store")}${esc(x.name)}</button>`).join("");
+  }
+  q = String(q || "").trim();
+  if (q) {                     // 打「吃了什麼」打到一半：只列有這幾個字的品項（全部菜單裡找）
+    const hit = s.menu.filter((x) => x.what.includes(q) && x.what !== q);
+    return hit.map((x) => `<button class="chip" data-lpick="${i}" data-lw="${esc(x.what)}" data-la="${x.amt || ""}" data-ls="${esc(x.sub || "")}">${esc(x.what)}${x.amt ? ` <b class="num">${x.amt}</b>` : ""}</button>`).join("");
+  }
   const menu = all ? s.menu : s.menu.slice(0, 8);
   const same = s.lastOrder.length > 1 && !l.what ? `<button class="chip same" data-lsame="${i}">${ico("repeat")}跟上次一樣（${s.lastOrder.length} 樣）</button>` : "";
   const photo = s.photo ? `<button class="chip" data-lphoto="${esc(s.name)}">${ico("image")}看菜單</button>` : "";
@@ -496,9 +504,9 @@ function lnMenu(idx, l, i, all = false) {
     + (!all && s.menu.length > 8 ? `<button class="chip" data-lmore="${i}">更多 ${s.menu.length - 8} 樣…</button>` : "");
 }
 function linesHTML(st, subs = []) {
-  const idx = shopIdx(), top = C.topShops(idx, 5);
+  const idx = shopIdx(), top = C.shopsForNow(data.items, idx, new Date(), 8);
   const subSel = (l, i) => (subs.length ? `<select data-ln="${i}" data-lk="sub" aria-label="細項"><option value="">細項</option>${subs.map((x) => `<option${x === l.sub ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>` : "");
-  return `<div class="lines">${top.length ? `<div class="shop-chips">${ico("store")}${top.map((x) => `<button class="chip" data-shopq="${esc(x.name)}">${esc(x.name)}</button>`).join("")}</div>` : ""}
+  return `<div class="lines">${idx.length ? `<div class="shop-chips">${ico("store")}${idx.length > top.length ? `<button class="chip more" data-shopall>全部店家</button>` : ""}${top.map((x) => `<button class="chip" data-shopq="${esc(x.name)}">${esc(x.name)}</button>`).join("")}</div>` : ""}
     ${st.lines.map((l, i) => `<div class="line${subs.length ? " s" : ""}">${subSel(l, i)}
       <input data-ln="${i}" data-lk="shop" value="${esc(l.shop)}" placeholder="店家" maxlength="20" aria-label="店家" autocomplete="off">
       <input data-ln="${i}" data-lk="what" value="${esc(l.what)}" placeholder="吃了什麼" maxlength="30" aria-label="吃了什麼">
@@ -523,11 +531,12 @@ function bindLines(el, st, draw) {
     if (i === undefined || !st.lines[+i]) return;
     st.lines[+i][e.target.dataset.lk] = e.target.value;
     if (e.target.dataset.lk === "amt") sync();
-    if (e.target.dataset.lk === "shop") { const box = el.querySelector(`[data-lnm="${i}"]`); if (box) box.innerHTML = lnMenu(shopIdx(), st.lines[+i], +i); }   // 只換這一列的菜單，輸入框不會跳掉
+    const lk = e.target.dataset.lk;
+    if (lk === "shop" || lk === "what") { const box = el.querySelector(`[data-lnm="${i}"]`); if (box) box.innerHTML = lnMenu(shopIdx(), st.lines[+i], +i, false, lk === "what" ? st.lines[+i].what : ""); }   // 只換這一列的建議，輸入框不會跳掉
   });
   el.addEventListener("change", (e) => { if (e.target.dataset.lk === "shop") st.onShop?.(e.target.value.trim()); });
   el.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-ladd], [data-lrm], [data-shopq], [data-lpick], [data-lsame], [data-lmore], [data-lphoto], [data-lq]");
+    const t = e.target.closest("[data-ladd], [data-lrm], [data-shopq], [data-shopall], [data-lshop], [data-lpick], [data-lsame], [data-lmore], [data-lphoto], [data-lq]");
     if (!t) return;
     const d = t.dataset, str = (v) => (v ? String(v) : "");
     if (d.ladd !== undefined) {   // 新的一列：帶入上一列的店家，直接打「吃了什麼」
@@ -536,10 +545,19 @@ function bindLines(el, st, draw) {
       el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="${prev ? "what" : "shop"}"]`)?.focus(); return;
     }
     if (d.lrm !== undefined) { st.lines.splice(+d.lrm, 1); draw(); sync(); return; }
-    if (d.shopq) {               // 常去的店家：最後一列店家還空著就填進去，不然新增一列
+    const useShop = (name) => {  // 常去的店家：最後一列店家還空著就填進去，不然新增一列
       const last = st.lines[st.lines.length - 1];
-      if (last && !last.shop && !last.what) last.shop = d.shopq; else st.lines.push({ ...blankLine(), shop: d.shopq });
-      draw(); st.onShop?.(d.shopq); return;
+      if (last && !last.what && (!last.shop.trim() || !C.findShop(shopIdx(), last.shop))) last.shop = name; else st.lines.push({ ...blankLine(), shop: name });   // 打到一半（還不是店家）也換掉
+      draw(); st.onShop?.(name);
+      el.querySelector(`[data-ln="${st.lines.length - 1}"][data-lk="what"]`)?.focus();
+    };
+    if (d.shopq) return useShop(d.shopq);
+    if (d.shopall !== undefined) return pickShop(useShop);
+    if (d.lshop !== undefined) {   // 打到一半點了建議的店
+      const i = +d.lshop;
+      if (st.lines[i]) st.lines[i].shop = d.name;
+      draw(); st.onShop?.(d.name);
+      el.querySelector(`[data-ln="${i}"][data-lk="what"]`)?.focus(); return;
     }
     if (d.lq !== undefined) {    // 數量 ＋／−：金額＝一份的價錢×數量
       const l = st.lines[+d.lq], q0 = +l?.qty || 1, q1 = Math.min(99, Math.max(1, q0 + +d.d));
@@ -565,6 +583,32 @@ function bindLines(el, st, draw) {
   });
 }
 const linesOf = (st) => C.cleanLines(st.lines);
+// 全部店家：上面搜尋，下面照店家類別分組；點一家就回傳
+function pickShop(onPick) {
+  let q = "";
+  openSheet((el, s) => {
+    const list = () => {
+      const all = shopIdx().sort((a, b) => b.count - a.count || b.lastT - a.lastT || a.name.localeCompare(b.name));
+      const rows = q.trim() ? C.matchShops(all, q, 200) : all;
+      if (!rows.length) return `<div class="empty">${q.trim() ? "找不到這家店。" : "還沒有店家。"}</div>`;
+      const row = (x) => `<button class="menu-row" data-pk="${esc(x.name)}">${ico("store")}<span class="t">${esc(x.name)}<small>${esc([x.count ? `去過 ${x.count} 次` : "還沒記過", x.branches[0]?.addr ? C.cleanAddr(x.branches[0].addr) : ""].filter(Boolean).join("・"))}</small></span></button>`;
+      if (q.trim()) return rows.map(row).join("");
+      const tags = [...C.shopTags(data.shops || []).filter((t) => rows.some((x) => x.tag === t)), ""];
+      const groups = tags.map((t) => [t, rows.filter((x) => (x.tag || "") === t)]).filter(([, l]) => l.length);
+      return groups.map(([t, l]) => (groups.length > 1 ? `<div class="sec-h shop-sec"><span>${esc(t || "未分類")}</span><span>${l.length} 家</span></div>` : "") + l.map(row).join("")).join("");
+    };
+    el.innerHTML = `<div class="sheet-h"><span class="cat-ico">${ico("store")}</span><h3>選店家</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
+      <input id="pk-q" type="search" placeholder="打店名或地址找" aria-label="找店家" autocomplete="off" style="width:100%">
+      <div id="pk-list">${list()}</div>`;
+    el.addEventListener("input", (e) => { if (e.target.id === "pk-q") { q = e.target.value; el.querySelector("#pk-list").innerHTML = list(); } });
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.close !== undefined) return s.close();
+      if (b.dataset.pk) { const name = b.dataset.pk; s.close(); setTimeout(() => onPick(name), 0); }
+    });
+  });
+}
 
 // ================================================================ 記一筆
 // 上面的分頁：支出｜收入｜移動｜朋友帳（移動要有兩個帳戶、朋友帳要有連動才出現），在同一個面板裡切換
