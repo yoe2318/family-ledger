@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.8.2";
+const VERSION = "1.8.3";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -154,14 +154,26 @@ async function showBgImg() {
   if (!layer) { layer = Object.assign(document.createElement("div"), { id: "bgimg", hidden: true }); document.body.prepend(layer); }
   const off = () => { layer.hidden = true; document.body.classList.remove("has-bgimg"); };
   if (!data.prefs.bgImg) return off();
-  try {
-    const blob = await BGDB.get();
-    if (!blob) return off();
-    if (bgURL) URL.revokeObjectURL(bgURL);
-    bgURL = URL.createObjectURL(blob);
-    layer.style.backgroundImage = `url("${bgURL}")`; layer.hidden = false;
-    document.body.classList.add("has-bgimg");
-  } catch { off(); }
+  for (let i = 0; i < 4; i++) {          // 手機剛打開、或從背景切回來時，偶爾第一次讀不到：等一下再試
+    try {
+      const blob = await BGDB.get();
+      if (blob) {
+        if (bgURL) URL.revokeObjectURL(bgURL);
+        bgURL = URL.createObjectURL(blob);
+        layer.style.backgroundImage = `url("${bgURL}")`; layer.hidden = false;
+        document.body.classList.add("has-bgimg");
+        return;
+      }
+    } catch { /* 下面再試 */ }
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+  }
+  off();
+}
+// 回到 App 時：背景圖片的那一層不見或被藏起來了，就再放一次
+function checkBgImg() {
+  if (!data.prefs.bgImg) return;
+  const layer = $("#bgimg");
+  if (!layer || layer.hidden || !document.body.classList.contains("has-bgimg") || !layer.parentNode) showBgImg();
 }
 // 選圖：縮到最長邊 1200px、轉 JPEG，太大的照片存不下也很慢
 async function loadImage(file) {
@@ -340,10 +352,12 @@ function openSheet(build) {
       const n = document.createElement("div");
       n.className = "sheet"; n.setAttribute("role", "dialog"); n.setAttribute("aria-modal", "true");
       el.replaceWith(n); el = s.el = n; s.onClose = null; s.dirty = null;
+      if (s._draft) { s._draft = false; clearDraft(); }   // 換到別的表單（移動、朋友帳）：原本的草稿不要了
       build(n, s);
       return s;
     },
     close(fromPop = false) {
+      s.closed = true;
       back.remove();
       if (!fromPop) { const i = sheets.indexOf(s); if (i >= 0) sheets.splice(i, 1); skipPop++; history.back(); }
       s.onClose?.();
@@ -357,6 +371,28 @@ function openSheet(build) {
   build(el, s);
   return s;
 }
+// 記到一半的草稿（新增的才存；改舊的不存）：每改一下就存，存好、按 ✕、選「不存，離開」就清掉
+const DRAFT_KEY = "ledger-draft";
+const getDraft = () => { const d = lsGet(DRAFT_KEY, null); return d && d.at > Date.now() - 7 * 86400000 ? d : null; };
+function clearDraft() {
+  const had = !!lsGet(DRAFT_KEY, null);
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* 存不了就算了 */ }
+  if (had && ui.tab === "home" && !sheets.length) render();
+}
+function keepDraft(s, el, make) {
+  s._draft = true;
+  let t = 0;
+  const later = () => { clearTimeout(t); t = setTimeout(() => { if (s.closed) return; const d = make(); if (d) lsSet(DRAFT_KEY, { ...d, at: Date.now() }); else clearDraft(); }, 150); };
+  for (const ev of ["input", "change", "click", "pointerup"]) el.addEventListener(ev, later);
+}
+const draftLabel = (d) => [d.cat ? d.cat + (d.sub ? "・" + d.sub : "") : "", C.evalAmount(d.expr || "") ? C.money(C.evalAmount(d.expr)) : "",
+  (d.lines || []).filter((l) => l.shop || l.what).slice(0, 2).map((l) => [l.shop, l.what].filter(Boolean).join(" ")).join("、")].filter(Boolean).join("・") || "還沒填金額";
+function openDraft() {
+  const d = getDraft();
+  if (!d) return render();
+  if (d.kind === "quick") return quickAmount({ type: d.type, cat: d.cat, sub: d.sub, pay: d.pay, note: d.note0 || "", title: d.title, draft: d });
+  openForm(null, { type: d.type, cat: d.cat, sub: d.sub, pay: d.pay, date: d.date, note: d.note || "", expr: d.expr || "", lines: d.lines || [], ...(d.acct ? { acct: d.acct } : {}) });
+}
 // 記到一半按返回鍵或點外面：問要不要離開（按「繼續記」或再按返回＝留下）
 async function confirmLeave(s) {
   if (s._asking) return;
@@ -366,6 +402,7 @@ async function confirmLeave(s) {
   if (v !== "leave") return;
   for (let i = 0; i < 20 && skipPop; i++) await new Promise((r) => setTimeout(r, 25));   // 等問題框的「上一頁」處理完，再關這個
   s.close();
+  if (s._draft) clearDraft();
 }
 // 問一個問題：buttons＝[[值, 文字, "primary"|"danger"]]；回傳按的值（關掉＝null）
 function ask(title, text, buttons, input = null) {
@@ -647,7 +684,7 @@ function openForm(item = null, preset = {}, into = null) {
   if (f.type === "in" && !f.acct) f.acct = C.acctFor(data, "in", "");
   const autoMeal = () => { if (!item && f.type === "out" && !f.sub && f.date === today()) f.sub = C.mealByTime(catOf("out", f.cat)?.subs || []); };   // 依時間帶入早餐／午餐／晚餐
   autoMeal();
-  f.lines = (item?.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" }));
+  f.lines = (item?.lines || preset.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" }));
   let makeShortcut = false, catTouched = !!item || !!preset.cat;      // 自己點過分類（或是改舊的那筆）就不自動換
   let redraw = () => {};
   f.onShop = (name) => {         // 選了店家：照這家上次（或店家頁設定）的分類帶入
@@ -661,7 +698,9 @@ function openForm(item = null, preset = {}, into = null) {
   let snap0 = "";
   sheetFor(into)((el, s) => {
     snap0 = snap0 || snap();
-    s.dirty = () => snap() !== snap0;   // 有改過（新增：有填東西）才問
+    const filled = () => !!(String(f.expr || "").trim() || linesOf(f).length || (f.note || "").trim());
+    s.dirty = item ? () => snap() !== snap0 : filled;   // 改舊的：有改過才問；新增：有填東西才問
+    if (!item) keepDraft(s, el, () => (filled() ? { kind: "form", type: f.type, cat: f.cat, sub: f.sub, pay: f.pay, date: f.date, note: f.note, expr: f.expr, lines: f.lines, acct: f.acct || "" } : null));
     el._kpHidden = true;               // 完整表單：鍵盤先收著，點金額或「打開鍵盤」才出來
     const draw = () => {
       const subs = catOf(f.type, f.cat)?.subs || [];
@@ -682,6 +721,7 @@ function openForm(item = null, preset = {}, into = null) {
         const acct = f.type === "in" ? f.acct || C.acctFor(data, "in", "") : item && item.type === "out" && item.pay === f.pay && item.acct ? item.acct : C.acctFor(data, "out", f.pay);
         const rec = { id: item?.id || C.newId(), type: f.type, amt, cat: f.cat, sub: f.sub, pay: f.type === "out" ? f.pay : "", date: f.date || today(), note: f.note.trim(), t: item?.t || Date.now(), ...(item?.rec ? { rec: item.rec } : {}), ...(String(item?.id).startsWith("fr-") ? {} : { acct }), ...(linesOf(f).length ? { lines: linesOf(f) } : {}) };
         s.close();
+        if (!item) clearDraft();
         if (item) { commit({ ...data, items: data.items.map((x) => (x.id === item.id ? rec : x)) }); toast("改好了"); return; }
         if (makeShortcut) data = { ...data, shortcuts: [...data.shortcuts, { id: C.newId(), label: "", type: rec.type, cat: rec.cat, sub: rec.sub, pay: rec.pay, amt, note: rec.note }] };
         addItem(rec);
@@ -691,7 +731,7 @@ function openForm(item = null, preset = {}, into = null) {
     el.addEventListener("click", async (e) => {
       const t = e.target.closest("button, input[type=checkbox]");
       if (!t) return;
-      if (t.dataset.close !== undefined) return s.close();
+      if (t.dataset.close !== undefined) { s.close(); if (!item) clearDraft(); return; }
       if (t.dataset.rt === "move" || t.dataset.rt === "friend") return switchRec(s, t.dataset.rt);
       if (t.dataset.rt) {             // 支出／收入：同一張表單裡換
         if (t.dataset.rt !== f.type) { f.type = t.dataset.rt; f.cat = data.cats[f.type][0]?.name || "其他"; f.sub = ""; f.pay = f.type === "in" ? "" : data.prefs.lastPay; f.acct = f.type === "in" ? C.acctFor(data, "in", "") : ""; draw(); }
@@ -721,10 +761,12 @@ function openForm(item = null, preset = {}, into = null) {
 }
 
 // 只打金額（長按一劃放手後、或捷徑沒有金額時）
-function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal = false }) {
-  const st = { expr: "", sub: sub || (meal && type === "out" ? C.mealByTime(catOf(type, cat)?.subs || []) : ""), note, date: today(), lines: [] };
+function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal = false, draft = null }) {
+  const st = draft ? { expr: draft.expr || "", sub: draft.sub || "", note: draft.note || "", date: draft.date || today(), lines: (draft.lines || []).map((l) => ({ ...l, amt: l.amt ? String(l.amt) : "" })) }
+    : { expr: "", sub: sub || (meal && type === "out" ? C.mealByTime(catOf(type, cat)?.subs || []) : ""), note, date: today(), lines: [] };
   openSheet((el, s) => {
     s.dirty = () => !!(String(st.expr || "").trim() || linesOf(st).length || st.note.trim() !== (note || "").trim());
+    keepDraft(s, el, () => (s.dirty() ? { kind: "quick", type, cat, sub: st.sub, pay: pay || "", title: title || "", note0: note || "", note: st.note, date: st.date, expr: st.expr, lines: st.lines } : null));
     const subsOf = () => catOf(type, cat)?.subs || [];
     const draw = () => {
       el.innerHTML = `<div class="sheet-h"><h3>${esc(title || `${pay ? pay + "・" : ""}${cat}`)}</h3><button class="icon-btn" data-close aria-label="關閉">${ico("x")}</button></div>
@@ -735,7 +777,7 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal 
         <div class="field"><label for="q-date">日期</label><input id="q-date" type="date" value="${esc(st.date)}"></div>
         ${keypadHTML()}`;
       bindKeypad(el, st, (amt) => {
-        s.close();
+        s.close(); clearDraft();
         addItem({ id: C.newId(), type, amt, cat, sub: st.sub, pay: pay || "", date: st.date || today(), note: st.note.trim(), t: Date.now(), ...(linesOf(st).length ? { lines: linesOf(st) } : {}) });
       });
     };
@@ -743,7 +785,7 @@ function quickAmount({ type = "out", cat, sub = "", pay, note = "", title, meal 
     el.addEventListener("click", async (e) => {
       const t = e.target.closest("button");
       if (!t) return;
-      if (t.dataset.close !== undefined) s.close();
+      if (t.dataset.close !== undefined) { s.close(); clearDraft(); return; }
       if (t.dataset.sub !== undefined) { st.sub = toggleSub(st.sub, t.dataset.sub, subsOf()); draw(); }
       if (t.dataset.snew !== undefined) { const v = await addSubTo(type, cat); if (v) st.sub = [...C.subParts(st.sub), v].join("＋"); draw(); }
       if (t.dataset.cedcur !== undefined) catForm(type, catOf(type, cat), (name) => {
@@ -962,7 +1004,9 @@ function renderHome() {
       <div class="line"><span>收入 <b class="num">${C.money(t.in)}</b></span><span>結餘 <b class="num">${C.money(t.net)}</b></span><button class="btn text small" data-goto="budget" style="padding:0">設定每月預算</button></div>`;
   }
   const overCats = b.cats.filter((c) => c.over);
+  const dr = getDraft();
   const notes = [
+    dr ? `<div class="note draft">${ico("pencil")}<span>有一筆記到一半：${esc(draftLabel(dr))}<span class="draft-btns"><button data-draft="go">繼續記</button><button data-draft="drop">丟掉</button></span></span></div>` : "",
     !storeOK ? `<div class="note bad">${ico("alert")}<span>這個瀏覽器存不了帳（可能是無痕模式）。請改用一般模式開啟，或從主畫面的 App 開。</span></div>` : "",
     overCats.length ? `<div class="note warn">${ico("alert")}<span>${overCats.map((c) => `${esc(c.cat)}超過預算 ${C.money(c.spent - c.budget)}`).join("、")}</span></div>` : "",
     C.needBackup(data) ? `<div class="note">${ico("download")}<span>超過 30 天沒備份了。換手機或清除瀏覽器資料時帳會不見，<button data-goto="backup">現在匯出備份</button></span></div>` : "",
@@ -2558,6 +2602,8 @@ async function onClick(e) {
   if (d.shop) return shopSheet(d.shop);
   if (d.stag !== undefined) { ui.shopTag = d.stag === "" ? null : d.stag === "__none" ? "" : d.stag; const box = $("#shop-list"); if (box) box.innerHTML = shopListHTML(); return; }
   if (d.shopnew !== undefined) return newShop();
+  if (d.draft === "go") return openDraft();
+  if (d.draft === "drop") { clearDraft(); render(); return toast("丟掉了"); }
   if (d.fcode !== undefined) { const v = await ask("輸入連動碼", "私訊 LINE 記帳機器人「連動碼」，把它回的 8 個字打在這裡（例如 K7P2-9QXA），大小寫都可以。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseCode(v)); return; }
   if (d.fnew !== undefined) return newGroupHelp();
   if (d.fpaste !== undefined) { const v = await ask("貼上連動連結", "私訊 LINE 記帳機器人「連動碼」，把它回的連結整段貼在這裡。", [["no", "取消"], ["ok", "連上", "primary"]], ""); if (v) linkFriend(C.parseLink(v)); return; }
@@ -2675,6 +2721,7 @@ function start() {
   else if (data.prefs.friend) syncFriends({ quiet: true });
   try { navigator.storage?.persist?.(); } catch { /* 不支援 */ }
   addEventListener("ledger:installable", () => { if (ui.more === "install") render(); });
+  addEventListener("pageshow", checkBgImg);
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     // 有新版：新的 sw 接手時自動重新整理一次（沒有在記帳的話），重開 App 一次就是新版
     const hadSW = !!navigator.serviceWorker.controller;
@@ -2688,6 +2735,7 @@ function start() {
   // 隔天打開沒有重新整理：回到 App 時換成今天這一期、補記固定收支
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
+    checkBgImg();
     if (data.prefs.friend && Date.now() - fst.lastTry > 60000) syncFriends({ quiet: true });
     const r = C.applyRecurring(data, today());
     if (r.added.length) { commit(r.data); toast(`自動記了 ${r.added.length} 筆固定收支`); }

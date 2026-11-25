@@ -575,3 +575,8 @@ textarea#b-hours { width: 100%; font: inherit; font-size: 15px; resize: vertical
 .shop-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .shop-chips::-webkit-scrollbar { display: none; }
 .shop-chips .chip { flex: none; }
+
+/* 首頁：記到一半的草稿 */
+.note.draft .draft-btns { display: flex; gap: 12px; margin-top: 6px; }
+.note.draft .draft-btns button { font-weight: 700; }
+.note.draft .draft-btns button:last-child { color: var(--muted); font-weight: 500; }
