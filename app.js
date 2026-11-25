@@ -2,7 +2,7 @@
 import * as C from "./core.js";
 
 const KEY = "ledger-v1";
-const VERSION = "1.8.3";
+const VERSION = "1.8.4";
 
 // ================================================================ 圖示（Lucide，ISC 授權）
 const ICONS = {
@@ -101,7 +101,9 @@ function load() {
   return C.emptyData();
 }
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(data)); storeOK = true; } catch { storeOK = false; }
+  const raw = JSON.stringify(data);
+  try { localStorage.setItem(KEY, raw); storeOK = true; return; } catch { /* 下面再試 */ }
+  try { localStorage.removeItem("ledger-bgimg"); localStorage.setItem(KEY, raw); storeOK = true; } catch { storeOK = false; }   // 空間不夠：帳比背景圖片重要
 }
 function commit(next, { quiet = false } = {}) { data = next; save(); if (!quiet) render(); }
 
@@ -149,12 +151,37 @@ const BGDB = {
   del(...keys) { return this.run("readwrite", (o) => { for (const k of keys.length ? keys : ["bg", "bg-orig"]) o.delete(k); }); },
 };
 let bgURL = null;
+// 背景圖片另外存一份成文字（data URL）放在 localStorage：打開 App 馬上就有，不用等資料庫（資料庫偶爾讀不到，背景就會不見）
+const BG_LS = "ledger-bgimg";
+const bgText = () => { try { return localStorage.getItem(BG_LS); } catch { return null; } };
+async function keepBgText(blob) {
+  try {
+    const im = await loadImage(blob);
+    for (const [max, q] of [[1600, 0.82], [1400, 0.75], [1200, 0.7], [1000, 0.65]]) {
+      const k = Math.min(1, max / Math.max(im.width, im.height));
+      const c = Object.assign(document.createElement("canvas"), { width: Math.round(im.width * k), height: Math.round(im.height * k) });
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      const url = c.toDataURL("image/jpeg", q);
+      if (url.length > 700000) continue;      // 太大會擠到帳本的空間：再縮一點
+      localStorage.setItem(BG_LS, url);
+      return true;
+    }
+  } catch { /* 存不下：照舊用資料庫那份 */ }
+  try { localStorage.removeItem(BG_LS); } catch { /* 沒有也沒關係 */ }
+  return false;
+}
 async function showBgImg() {
   let layer = $("#bgimg");
   if (!layer) { layer = Object.assign(document.createElement("div"), { id: "bgimg", hidden: true }); document.body.prepend(layer); }
   const off = () => { layer.hidden = true; document.body.classList.remove("has-bgimg"); };
   if (!data.prefs.bgImg) return off();
-  for (let i = 0; i < 4; i++) {          // 手機剛打開、或從背景切回來時，偶爾第一次讀不到：等一下再試
+  const txt = bgText();
+  if (txt) {
+    layer.style.backgroundImage = `url("${txt}")`; layer.hidden = false;
+    document.body.classList.add("has-bgimg");
+    return;
+  }
+  for (let i = 0; i < 4; i++) {          // 還沒有文字那份（舊版選的圖）：從資料庫拿，拿到順便存一份文字
     try {
       const blob = await BGDB.get();
       if (blob) {
@@ -162,6 +189,7 @@ async function showBgImg() {
         bgURL = URL.createObjectURL(blob);
         layer.style.backgroundImage = `url("${bgURL}")`; layer.hidden = false;
         document.body.classList.add("has-bgimg");
+        keepBgText(blob);
         return;
       }
     } catch { /* 下面再試 */ }
@@ -273,7 +301,7 @@ async function pickBgImage(file) {
     const im = await loadImage(file), orig = await shrink(im);
     const r = await cropper({ img: await loadImage(orig), shape: "rect" });
     if (!r) return;
-    await BGDB.set(r.blob, "bg"); await BGDB.set(orig, "bg-orig");
+    await BGDB.set(r.blob, "bg"); await BGDB.set(orig, "bg-orig"); await keepBgText(r.blob);
     commit({ ...data, prefs: { ...data.prefs, bgImg: true, bgCrop: r.crop } });
     await showBgImg();
     toast("背景圖片換好了，可以用下面的滑桿調淡一點或濃一點");
@@ -285,7 +313,7 @@ async function adjustBgImage() {
     if (!orig) return toast("找不到原本的圖片，請重新選一張");
     const r = await cropper({ img: await loadImage(orig), shape: "rect", init: data.prefs.bgCrop });
     if (!r) return;
-    await BGDB.set(r.blob, "bg");
+    await BGDB.set(r.blob, "bg"); await keepBgText(r.blob);
     commit({ ...data, prefs: { ...data.prefs, bgCrop: r.crop } });
     await showBgImg(); toast("位置調好了");
   } catch { toast("存不了這張圖片"); }
@@ -2645,7 +2673,7 @@ async function onClick(e) {
   if (d.fabpick !== undefined) return $("#fabimg-in")?.click();
   if (d.fabadj !== undefined) return pickFabImage(null, true);
   if (d.fabrm !== undefined) { try { await BGDB.del("fab", "fab-orig"); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, fabImg: false } }); showFab(); return toast("換回 ＋ 了"); }
-  if (d.bgrm !== undefined) { try { await BGDB.del(); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, bgImg: false } }); showBgImg(); return toast("背景圖片拿掉了"); }
+  if (d.bgrm !== undefined) { try { localStorage.removeItem(BG_LS); await BGDB.del(); } catch { /* 沒有也沒關係 */ } commit({ ...data, prefs: { ...data.prefs, bgImg: false } }); showBgImg(); return toast("背景圖片拿掉了"); }
   if (d.theme) { commit({ ...data, prefs: { ...data.prefs, theme: d.theme } }); return applyTheme(); }
   if (d.mode) { commit({ ...data, prefs: { ...data.prefs, mode: d.mode } }); applyTheme(); return render(); }
   if (d.bg) { commit({ ...data, prefs: { ...data.prefs, bg: d.bg } }); return applyTheme(); }
@@ -2658,6 +2686,7 @@ async function onClick(e) {
   if (d.clearall !== undefined) {
     const v = await ask("真的要清除全部資料？", "請輸入「清除」兩個字確認。", [["no", "取消"], ["ok", "清除全部", "danger"]], "");
     if (v?.trim() !== "清除") { if (v !== null) toast("沒有清除（要輸入「清除」）"); return; }
+    try { localStorage.removeItem(BG_LS); localStorage.removeItem(DRAFT_KEY); } catch { /* 沒有也沒關係 */ }
     try { await BGDB.del("bg", "bg-orig", "fab", "fab-orig", ...(data.shops || []).flatMap((x) => (x.photos || []).map((id) => photoKey(x.name, id)))); } catch { /* 沒有也沒關係 */ }
     commit(C.emptyData(), { quiet: true }); applyTheme(); showBgImg(); showFab(); ui.period = periodNow(); toast("全部清除了"); return go("home");
   }
